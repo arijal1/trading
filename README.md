@@ -43,6 +43,7 @@ live trading at five independent gates — see `docs/LIVE_TRADING.md`,
 - `docs/LIVE_TRADING.md` — live-trading guardrails, credential vault, why no venue is wired up
 - `docs/AUTH.md` — JWT auth, RBAC, admin bootstrap
 - `docs/TROUBLESHOOTING.md` — when it won't start or won't connect
+- `docs/RASPBERRY_PI.md` — running it on a Pi, and safe remote access
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 
@@ -80,6 +81,10 @@ to fix what it finds:
 ```bash
 bash scripts/doctor.sh
 ```
+
+Running it on a **Raspberry Pi**? See `docs/RASPBERRY_PI.md` — it works on
+a Pi 4/5 with the 64-bit OS, and there's a `docker-compose.pi.yml` overlay
+that cuts SD-card wear and caps memory.
 
 See `docs/TROUBLESHOOTING.md` for the full list of causes. The two most
 common by far: Docker Desktop installed but not *running*, and port 5432

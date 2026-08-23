@@ -1,0 +1,97 @@
+# Raspberry Pi overlay. Use *in addition to* the base compose file:
+#
+#   docker compose -f infrastructure/docker-compose.yml \
+#                  -f infrastructure/docker-compose.pi.yml up -d
+#
+# Two things differ on a Pi that are worth engineering around rather than
+# hoping about:
+#
+# 1. **The SD card is the weak point.** It is slow and it wears out on
+#    sustained writes. Postgres and Prometheus are both write-heavy, and a
+#    24/7 box will kill a cheap card. The settings below cut write volume
+#    substantially; an SSD over USB3 is still the real fix.
+# 2. **RAM is scarce.** Postgres' defaults assume a server. Left alone,
+#    Postgres + Prometheus + Node will fight for memory on a 2-4GB board.
+#
+# See docs/RASPBERRY_PI.md.
+
+services:
+  postgres:
+    # Tuned for a small board, not a server. shared_buffers at ~128MB and
+    # a modest cache estimate keep Postgres from assuming it owns the
+    # machine. synchronous_commit=off trades a few hundred ms of
+    # crash-durability for a large reduction in SD-card writes — an
+    # acceptable trade for paper-trading history, and one you should
+    # reverse if this ever holds real money.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - max_connections=50
+      - -c
+      - synchronous_commit=off
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - max_wal_size=512MB
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  redis:
+    # Cap Redis so it can never balloon; it is used for caching only here,
+    # so evicting under pressure is correct behaviour rather than a loss.
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  web:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  prometheus:
+    # Default retention is 15 days of continuous writes. On an SD card
+    # that is the single biggest avoidable source of wear, and nothing
+    # here needs two weeks of history. Note that overriding `command`
+    # replaces the image's default entirely, so the standard flags have to
+    # be restated.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+      - --storage.tsdb.retention.size=256MB
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    deploy:
+      resources:
+        limits:
+          memory: 256M

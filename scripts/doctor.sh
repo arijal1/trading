@@ -83,6 +83,56 @@ else
   fix "Update Docker Desktop, or install the compose-plugin package."
 fi
 
+# ------------------------------------------------------- small-board / ARM host
+# Checked before anything else that could fail *because* of these, so the
+# real cause is reported rather than a downstream symptom.
+ARCH="$(uname -m 2>/dev/null || echo unknown)"
+IS_PI=0
+if [ -r /proc/device-tree/model ] && tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -qi raspberry; then
+  IS_PI=1
+fi
+
+if [ "$IS_PI" = "1" ] || [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "armv7l" ] || [ "$ARCH" = "armv6l" ]; then
+  head_ "1b. Small-board host"
+  model="$( (tr -d '\0' < /proc/device-tree/model) 2>/dev/null || echo "ARM host")"
+  ok "detected: $model ($ARCH)"
+
+  case "$ARCH" in
+    armv7l|armv6l)
+      fail "this is a 32-bit OS — numpy/pandas have no prebuilt 32-bit ARM wheels"
+      fix "Reflash with the 64-bit Raspberry Pi OS. On 32-bit they compile from source and usually fail."
+      ;;
+    aarch64)
+      ok "64-bit OS — all required images and Python wheels have arm64 builds"
+      ;;
+  esac
+
+  mem_kb="$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  swap_kb="$(awk '/SwapTotal/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  mem_mb=$(( mem_kb / 1024 )); swap_mb=$(( swap_kb / 1024 ))
+  total_mb=$(( mem_mb + swap_mb ))
+
+  if [ "$mem_mb" -gt 0 ]; then
+    ok "RAM: ${mem_mb}MB, swap: ${swap_mb}MB"
+    if [ "$total_mb" -lt 3000 ]; then
+      warn "under ~3GB RAM+swap — 'next build' is likely to be OOM-killed (exit code 137)"
+      fix "Add swap:  sudo dphys-swapfile swapoff && sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile && sudo dphys-swapfile setup && sudo dphys-swapfile swapon"
+      fix "Or skip building the dashboard on the Pi and run the API only (see docs/RASPBERRY_PI.md)."
+    fi
+  fi
+
+  root_dev="$(findmnt -no SOURCE / 2>/dev/null || echo "")"
+  case "$root_dev" in
+    /dev/mmcblk*)
+      warn "running from an SD card — Postgres/Prometheus writes will wear it out over months"
+      fix "Use the Pi overlay to cut write volume:  -f infrastructure/docker-compose.pi.yml"
+      fix "Better: boot from a USB3 SSD."
+      ;;
+    "") : ;;
+    *) ok "root filesystem is on $root_dev (not an SD card)" ;;
+  esac
+fi
+
 # ------------------------------------------------------------------------ files
 head_ "2. Repository files"
 

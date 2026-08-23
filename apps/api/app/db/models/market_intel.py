@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, UUIDPKMixin
@@ -19,7 +19,7 @@ class SentimentEvent(Base, UUIDPKMixin):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     velocity: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -30,5 +30,5 @@ class MarketRegime(Base, UUIDPKMixin):
     regime: Mapped[str] = mapped_column(String(32), nullable=False)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

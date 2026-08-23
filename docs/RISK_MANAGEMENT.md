@@ -66,3 +66,24 @@ fixed; a regression test
 concurrent DB sessions at it and confirms exactly one row survives, and
 the same behavior was verified with 10 genuinely concurrent HTTP requests
 against a running server.
+
+## Audit/event timestamps were silently frozen — also found and fixed
+
+`audit_logs.occurred_at`, `risk_events.occurred_at`, `system_events.occurred_at`,
+`alerts.sent_at`, and eight other event-timestamp columns used
+`server_default="now()"` — a bare Python string. Postgres treats a quoted
+string default as a constant and freezes it at the moment the column's
+DEFAULT is set, rather than the intended "evaluate `now()` fresh on every
+insert" you get from `server_default=func.now()` (a well-known Postgres
+pitfall, and the pattern every other timestamp column in this schema
+already used correctly via `TimestampMixin`). Every row inserted into
+those tables recorded the same fixed timestamp regardless of when it was
+actually created — found live, while manually exercising the running
+platform, when three separate emergency-stop/resume audit rows all came
+back with the identical `occurred_at`. Fixed for all 14 affected columns
+across 5 model files via migration `815708821b74`, with
+`compare_server_default=True` now enabled in `alembic/env.py` so
+autogenerate catches this class of drift in the future (it doesn't by
+default), and a regression test
+(`test_audit_log_occurred_at_advances_across_separate_commits`) that was
+verified to fail against the old code before the fix and pass after.

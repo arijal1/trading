@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +17,7 @@ class RiskEvent(Base, UUIDPKMixin):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     details: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -29,7 +29,7 @@ class Alert(Base, UUIDPKMixin):
     payload: Mapped[dict | None] = mapped_column(JSONB)
     channel: Mapped[str | None] = mapped_column(String(32))
     sent_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -40,7 +40,7 @@ class SystemEvent(Base, UUIDPKMixin):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     details: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -54,5 +54,5 @@ class AuditLog(Base, UUIDPKMixin):
     before: Mapped[dict | None] = mapped_column(JSONB)
     after: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,7 +31,7 @@ class Signal(Base, UUIDPKMixin):
     data_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     data_age_ms: Mapped[int] = mapped_column(nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -59,7 +59,7 @@ class Decision(Base, UUIDPKMixin):
     policy_result: Mapped[str | None] = mapped_column(String(32))  # APPROVED/REJECTED
     policy_reject_reason: Mapped[str | None] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -87,7 +87,7 @@ class OrderEvent(Base, UUIDPKMixin):
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     payload: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -100,7 +100,7 @@ class Fill(Base, UUIDPKMixin):
     fee: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
     slippage: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     filled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -124,5 +124,5 @@ class PositionEvent(Base, UUIDPKMixin):
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     payload: Mapped[dict | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default="now()", nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

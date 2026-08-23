@@ -48,3 +48,21 @@ notify via the configured channel (Telegram, Phase 5), and optionally
 close risky positions if `EMERGENCY_CLOSE_POSITIONS_ON_BREACH` is enabled.
 Resuming trading always requires an explicit, audited manual action —
 never an automatic timeout-based resume.
+
+## `system_state` is a true singleton, not just "usually one row"
+
+`app/services/system_state.py`'s `get_or_create_state` upserts against a
+fixed, well-known primary key (`SYSTEM_STATE_ID`) rather than doing a
+plain "SELECT ... LIMIT 1, insert if empty" check. That distinction
+matters specifically because this table backs the kill switch: a naive
+check-then-insert lets two concurrent first-ever callers (e.g. two
+near-simultaneous `POST /trading/emergency-stop` requests before any row
+exists) both see nothing and both insert a row — and a later
+`SELECT ... LIMIT 1` elsewhere would then return an arbitrary one of the
+two, meaning an emergency stop set on one row could be silently invisible
+to code that happens to read the other. This was found via review and
+fixed; a regression test
+(`test_concurrent_first_callers_never_create_a_second_row`) fires 10 real
+concurrent DB sessions at it and confirms exactly one row survives, and
+the same behavior was verified with 10 genuinely concurrent HTTP requests
+against a running server.

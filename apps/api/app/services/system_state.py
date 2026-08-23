@@ -3,26 +3,44 @@
 The system_state table holds a single row. Every mutation goes through this
 module so it always writes a matching audit_logs row (Section 33/57) — there
 is no path that flips is_emergency_stopped without an audit trail.
+
+`get_or_create_state` always operates on one fixed, well-known primary key
+rather than "whichever row happens to exist" — a plain check-then-insert
+(SELECT ... LIMIT 1, then INSERT if empty) would let two concurrent
+first-ever callers (e.g. two near-simultaneous POST /trading/emergency-stop
+requests before any row exists) both see nothing and both insert a row.
+For a kill switch that's worse than a mere duplicate: a `SELECT ... LIMIT 1`
+with two rows present returns an arbitrary one of them, so an emergency
+stop set on one row could be invisible to code that happens to read the
+other. Pinning the id and upserting on the primary key makes a second row
+structurally impossible.
 """
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.audit import AuditLog
 from app.db.models.core import SystemState
 
+# Fixed sentinel id for the one-and-only system_state row. Not a real
+# entity identity, just a constant to upsert against.
+SYSTEM_STATE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
 
 async def get_or_create_state(db: AsyncSession) -> SystemState:
-    result = await db.execute(select(SystemState).limit(1))
-    state = result.scalar_one_or_none()
-    if state is None:
-        state = SystemState(is_emergency_stopped=False, is_trading_halted=False)
-        db.add(state)
-        await db.flush()
-    return state
+    stmt = (
+        pg_insert(SystemState)
+        .values(id=SYSTEM_STATE_ID, is_emergency_stopped=False, is_trading_halted=False)
+        .on_conflict_do_nothing(index_elements=["id"])
+    )
+    await db.execute(stmt)
+    result = await db.execute(select(SystemState).where(SystemState.id == SYSTEM_STATE_ID))
+    return result.scalar_one()
 
 
 async def emergency_stop(db: AsyncSession, *, reason: str, actor: str) -> SystemState:

@@ -20,6 +20,8 @@ structlog = "^24.4.0"
 python-dotenv = "^1.0.1"
 prometheus-client = "^0.21.0"
 httpx = "^0.27.2"
+pandas = "^2.2.3"
+numpy = "^2.1.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
@@ -39,6 +41,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

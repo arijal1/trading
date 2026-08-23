@@ -67,8 +67,8 @@ apps/api/
     api/v1/      versioned REST routers
     db/          session/engine, ORM models
     schemas/     Pydantic request/response + internal contracts
-    services/    engine packages (market_data, technical_analysis, risk, ...)
-    workers/     background job entrypoints (Phase 2+)
+    services/    engine packages (exchanges, market_data, technical_analysis, risk, ...)
+    workers/     background job entrypoints (Phase 3+)
   alembic/       migrations
   tests/
 infrastructure/  docker-compose.yml, Dockerfiles, monitoring config
@@ -95,8 +95,9 @@ phases.
 
 ## 6. API Design
 
-See `docs/API_DESIGN.md`. Phase 1 implements only `/health` and
-`/system/status`, both real. Every other endpoint from the brief is
+See `docs/API_DESIGN.md`. Phase 1 implements `/health` and
+`/system/status`; Phase 2 adds `/assets`, `/markets`, and the
+candle/technical-analysis endpoints. Every other endpoint from the brief is
 documented with its intended contract so the surface is stable as it's
 filled in.
 
@@ -171,11 +172,18 @@ parsed into an order.
 
 Phases follow the brief's Section 59 exactly:
 
-- **Phase 1 (this delivery)**: repo scaffold, Docker Compose, full DB schema
+- **Phase 1 (done)**: repo scaffold, Docker Compose, full DB schema
   + migrations, settings/config, structured logging, test framework, CI,
   `/health` + `/system/status`, emergency-stop persistence primitive.
-- **Phase 2**: market data ingestion + `ExchangeAdapter` interface (+ mock
-  adapter), historical OHLCV storage, technical analysis engine.
+- **Phase 2 (done)**: `ExchangeAdapter` interface + `MockExchangeAdapter`
+  (docs/EXCHANGE_ADAPTER.md); `MarketDataEngine.sync_candles` — idempotent
+  OHLCV ingestion into `candles` with gap detection logged to
+  `system_events`; `TechnicalAnalysisEngine` (SMA/EMA/RSI/MACD/Bollinger/
+  ATR/ADX/VWAP/StochRSI/volume/momentum/volatility/support-resistance/
+  trend/breakout/reversal, all pure computation, no order placement) over
+  `app/services/technical_analysis/indicators.py`; `GET /assets`,
+  `GET /markets`, `GET /markets/{id}/candles`,
+  `POST /markets/{id}/sync`, `GET /markets/{id}/technical-analysis`.
 - **Phase 3**: backtesting engine, entry/exit strategies, risk engine,
   portfolio engine.
 - **Phase 4**: paper trading, order simulation, copy-trading simulation,

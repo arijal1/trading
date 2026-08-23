@@ -1,11 +1,14 @@
 # AI Crypto Trading & Copy-Trading Platform
 
-Status: **Phase 1 — foundation**. See `docs/ARCHITECTURE.md` for the full
-architecture assessment, technology decisions, and phased roadmap (Phases
-1-7). This is not yet a trading system: there is no market data ingestion,
-no strategy logic, and no order execution path. Phase 1 delivers the
-skeleton everything else builds on: schema, config, safety primitives
-(emergency stop), and CI — all real and tested, nothing simulated.
+Status: **Phase 2 — market data + technical analysis**. See
+`docs/ARCHITECTURE.md` for the full architecture assessment, technology
+decisions, and phased roadmap (Phases 1-7). This is not yet a trading
+system: there is no strategy/decision engine and no order-execution path
+against real money. Phases 1-2 deliver the schema, config, safety
+primitives (emergency stop), CI, an exchange-agnostic adapter interface
+(mock implementation only — no exchange has been chosen), OHLCV
+ingestion, and a technical analysis engine — all real, tested, and
+exercised end-to-end, nothing simulated in the plumbing sense.
 
 Trading mode defaults to `paper` and there is currently no code capable of
 placing a real order regardless of configuration (see
@@ -16,6 +19,7 @@ placing a real order regardless of configuration (see
 - `docs/ARCHITECTURE.md` — architecture assessment, tech decisions, roadmap
 - `docs/DATABASE_SCHEMA.md` — full table reference
 - `docs/API_DESIGN.md` — implemented + planned endpoints
+- `docs/EXCHANGE_ADAPTER.md` — exchange abstraction + mock adapter
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 
@@ -44,6 +48,14 @@ The API is then available at `http://localhost:8000`:
 - `POST /api/v1/trading/emergency-stop` — kill switch (`{"reason": "...", "actor": "..."}`)
 - `POST /api/v1/trading/resume` — clears emergency-stop / halt state
 - `POST /api/v1/trading/pause` — halts new trades without full emergency stop
+- `GET /api/v1/assets`, `GET /api/v1/markets` — registered assets/markets
+- `POST /api/v1/markets/{id}/sync?timeframe=1h&hours=72` — ingest OHLCV via the mock exchange adapter
+- `GET /api/v1/markets/{id}/candles?timeframe=1h` — stored candles
+- `GET /api/v1/markets/{id}/technical-analysis?timeframe=1h` — indicator scores over stored candles
+
+Markets/assets/exchanges currently have no creation endpoint (Phase 6 adds
+one alongside real exchange onboarding) — insert rows directly for now,
+e.g. via `psql` against the `exchanges`, `assets`, and `markets` tables.
 
 ## Running without Docker (API only)
 

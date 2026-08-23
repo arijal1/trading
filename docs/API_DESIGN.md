@@ -15,6 +15,21 @@ middleware can be added without reshaping routes.
 | POST | `/api/v1/trading/resume` | Manual reset of `is_emergency_stopped` / `is_trading_halted`. Requires a reason; audited. |
 | POST | `/api/v1/trading/pause` | Sets `is_trading_halted = true` (softer than emergency-stop: no forced position closure). |
 
+## Implemented in Phase 2
+
+Market/asset rows are created directly in the DB for now — there is no
+market/exchange onboarding endpoint yet (planned alongside real exchange
+adapters in Phase 6). All data below currently comes from the mock
+exchange adapter (`docs/EXCHANGE_ADAPTER.md`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/assets` | List registered assets. |
+| GET | `/api/v1/markets` | List configured markets with exchange/base/quote names joined in. |
+| GET | `/api/v1/markets/{id}/candles` | Stored OHLCV candles for a market (`timeframe`, `limit` query params), ascending by time. |
+| POST | `/api/v1/markets/{id}/sync` | Fetches missing candles from the configured adapter into `candles` for the last `hours` (`timeframe`, `hours` query params). Idempotent — a fully-cached range makes no adapter call. |
+| GET | `/api/v1/markets/{id}/technical-analysis` | Runs `TechnicalAnalysisEngine` over the market's stored candles (`timeframe`, `limit`). Returns `422` if fewer than `MIN_BARS_REQUIRED` (35) bars are stored. |
+
 ## Planned (documented now, implemented in later phases)
 
 | Method | Path | Phase | Notes |
@@ -26,8 +41,6 @@ middleware can be added without reshaping routes.
 | GET | `/trades` | 4 | fill history |
 | GET | `/performance` | 3 | Sharpe/Sortino/drawdown/etc. |
 | GET | `/risk` | 3 | current risk-limit usage |
-| GET | `/markets` | 2 | configured markets |
-| GET | `/assets` | 2 | asset registry + risk scores |
 | GET | `/signals` | 3 | latest per-strategy signals |
 | GET | `/decisions` | 3 | AI decision log with explainability fields |
 | GET | `/traders` | 4 | followed traders |

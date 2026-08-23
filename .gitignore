@@ -1,0 +1,32 @@
+# secrets
+.env
+*.env
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# node
+node_modules/
+.next/
+dist/
+
+# os
+.DS_Store
+
+# poetry
+poetry.lock.bak
+
+# docker
+infrastructure/monitoring/data/

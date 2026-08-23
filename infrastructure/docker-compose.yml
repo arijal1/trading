@@ -9,7 +9,11 @@ services:
       POSTGRES_PASSWORD: trading
       POSTGRES_DB: trading
     ports:
-      - "5432:5432"
+      # Host port is overridable: 5432 is very often already taken by a
+      # locally-installed Postgres, and the collision makes `compose up`
+      # fail in a way that looks like "the app won't start".
+      # Set POSTGRES_PORT=5433 in .env if that happens.
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +26,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -40,7 +44,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     # Migrations run on start rather than in the image build: the database
     # only exists at run time, and without this a fresh `compose up` serves
     # an API whose every DB-backed endpoint 500s against empty schema.
@@ -59,10 +63,12 @@ services:
       context: ..
       dockerfile: infrastructure/Dockerfile.web
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        # Baked in at build time: every dashboard fetch runs in the
+        # browser, so this must be the URL *your browser* uses.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-8000}
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
     depends_on:
       - api
 
@@ -72,7 +78,7 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
 
 volumes:
   postgres_data:

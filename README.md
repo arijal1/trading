@@ -42,6 +42,7 @@ live trading at five independent gates — see `docs/LIVE_TRADING.md`,
 - `docs/DASHBOARD.md` — Next.js dashboard architecture and scope
 - `docs/LIVE_TRADING.md` — live-trading guardrails, credential vault, why no venue is wired up
 - `docs/AUTH.md` — JWT auth, RBAC, admin bootstrap
+- `docs/TROUBLESHOOTING.md` — when it won't start or won't connect
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 
@@ -71,6 +72,19 @@ docker compose -f infrastructure/docker-compose.yml exec api \
 
 Then open **http://localhost:3000**. You should see the system-status
 panel and one "Demo Paper Account".
+
+**If anything doesn't come up**, run the doctor — it checks Docker, ports,
+`.env`, container health, and reachability, then prints the exact command
+to fix what it finds:
+
+```bash
+bash scripts/doctor.sh
+```
+
+See `docs/TROUBLESHOOTING.md` for the full list of causes. The two most
+common by far: Docker Desktop installed but not *running*, and port 5432
+already owned by a locally-installed Postgres (fix:
+`POSTGRES_PORT=5433 docker compose -f infrastructure/docker-compose.yml up -d`).
 
 To make it actually trade (paper only — nothing here can touch real
 money), click into the account and:

@@ -1,0 +1,39 @@
+# Both Dockerfiles do a bare `COPY apps/<x> /app`, so without this file the
+# build context includes the host's node_modules and virtualenvs. That is
+# not just slow (~580MB): node_modules and .venv contain platform-native
+# binaries, so building on macOS or Windows would copy darwin/win32
+# binaries into a Linux image and break the build or the runtime.
+# The images install their own dependencies; never ship the host's.
+
+# --- dependencies / build output (platform-specific, must not be copied) ---
+**/node_modules
+**/.next
+**/out
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+
+# --- secrets: never bake a real .env into an image layer ---
+.env
+.env.*
+!.env.example
+
+# --- vcs / editor / os noise ---
+.git
+.gitignore
+.github
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# --- not needed at runtime ---
+docs
+**/*.md
+apps/api/tests
+apps/api/.coverage
+apps/api/htmlcov

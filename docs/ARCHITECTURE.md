@@ -67,8 +67,9 @@ apps/api/
     api/v1/      versioned REST routers
     db/          session/engine, ORM models
     schemas/     Pydantic request/response + internal contracts
-    services/    engine packages (exchanges, market_data, technical_analysis, risk, ...)
-    workers/     background job entrypoints (Phase 3+)
+    services/    engine packages (exchanges, market_data, technical_analysis,
+                 strategy, execution, portfolio, backtesting, ...)
+    workers/     background job entrypoints (Phase 4+, once Celery is wired up)
   alembic/       migrations
   tests/
 infrastructure/  docker-compose.yml, Dockerfiles, monitoring config
@@ -184,8 +185,19 @@ Phases follow the brief's Section 59 exactly:
   `app/services/technical_analysis/indicators.py`; `GET /assets`,
   `GET /markets`, `GET /markets/{id}/candles`,
   `POST /markets/{id}/sync`, `GET /markets/{id}/technical-analysis`.
-- **Phase 3**: backtesting engine, entry/exit strategies, risk engine,
-  portfolio engine.
+- **Phase 3 (done)**: `PortfolioRiskEngine` + position sizing
+  (docs/STRATEGY_ENGINE.md) — pure, DB-agnostic checks against a
+  `PortfolioState` snapshot (drawdown, daily/weekly loss, position size,
+  portfolio exposure, asset concentration, max open positions);
+  5 independent entry-strategy signal generators (trend following,
+  momentum, breakout, pullback, mean reversion) + `StrategyAggregator`
+  weighted combination; `ExitEngine` (ATR-based dynamic stop-loss,
+  ratcheting trailing stop, take-profit, max-hold-time, trend-reversal,
+  momentum-failure); performance metrics (Sharpe/Sortino/CAGR/Calmar/
+  drawdown/win-rate/profit-factor/expectancy); `BacktestEngine`
+  (docs/BACKTESTING.md) — no-look-ahead walk-forward simulator over
+  stored candles tying all of the above together, with explicit fee/
+  slippage modeling; `POST /backtests`, `GET /backtests/{id}`.
 - **Phase 4**: paper trading, order simulation, copy-trading simulation,
   profit/capital-recovery manager.
 - **Phase 5**: dashboard (Next.js), notifications (Telegram), monitoring

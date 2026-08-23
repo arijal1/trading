@@ -1,5 +1,3 @@
-"""Placeholder package for the execution engine — not yet implemented.
-
-See docs/ARCHITECTURE.md Section 13 (Implementation Roadmap) for which
-phase adds this engine's real logic.
+"""Execution-side logic. exit_engine.py (Sections 17-19) ships in Phase 3;
+order placement/reconciliation (Sections 24-25) is still Phase 4+.
 """

@@ -1,5 +1,1 @@
-"""Placeholder package for the backtesting engine — not yet implemented.
-
-See docs/ARCHITECTURE.md Section 13 (Implementation Roadmap) for which
-phase adds this engine's real logic.
-"""
+"""Backtesting engine (brief Section 36) — see engine.py and metrics.py."""

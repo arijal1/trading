@@ -1,14 +1,17 @@
 # AI Crypto Trading & Copy-Trading Platform
 
-Status: **Phase 2 — market data + technical analysis**. See
+Status: **Phase 3 — backtesting, strategy, and risk engines**. See
 `docs/ARCHITECTURE.md` for the full architecture assessment, technology
 decisions, and phased roadmap (Phases 1-7). This is not yet a trading
-system: there is no strategy/decision engine and no order-execution path
-against real money. Phases 1-2 deliver the schema, config, safety
-primitives (emergency stop), CI, an exchange-agnostic adapter interface
-(mock implementation only — no exchange has been chosen), OHLCV
-ingestion, and a technical analysis engine — all real, tested, and
-exercised end-to-end, nothing simulated in the plumbing sense.
+system: there is no AI decision layer, no paper/live order execution, and
+no order-execution path against real money. Phases 1-3 deliver the
+schema, config, safety primitives (emergency stop), CI, an
+exchange-agnostic adapter interface (mock implementation only — no
+exchange has been chosen), OHLCV ingestion, a technical analysis engine,
+five rule-based entry strategies with weighted aggregation, a dynamic
+stop-loss/trailing-stop exit engine, a portfolio risk engine, and a
+no-look-ahead backtesting engine — all real, tested, and exercised
+end-to-end, nothing simulated in the plumbing sense.
 
 Trading mode defaults to `paper` and there is currently no code capable of
 placing a real order regardless of configuration (see
@@ -20,6 +23,8 @@ placing a real order regardless of configuration (see
 - `docs/DATABASE_SCHEMA.md` — full table reference
 - `docs/API_DESIGN.md` — implemented + planned endpoints
 - `docs/EXCHANGE_ADAPTER.md` — exchange abstraction + mock adapter
+- `docs/STRATEGY_ENGINE.md` — entry strategies, exit engine, position sizing, portfolio risk engine
+- `docs/BACKTESTING.md` — backtesting engine design and scope
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 
@@ -52,6 +57,8 @@ The API is then available at `http://localhost:8000`:
 - `POST /api/v1/markets/{id}/sync?timeframe=1h&hours=72` — ingest OHLCV via the mock exchange adapter
 - `GET /api/v1/markets/{id}/candles?timeframe=1h` — stored candles
 - `GET /api/v1/markets/{id}/technical-analysis?timeframe=1h` — indicator scores over stored candles
+- `POST /api/v1/backtests` — run a backtest over a market's stored candles (`{"market_id": "...", "timeframe": "1h", "candle_limit": 300}`)
+- `GET /api/v1/backtests/{id}` — read back a backtest result
 
 Markets/assets/exchanges currently have no creation endpoint (Phase 6 adds
 one alongside real exchange onboarding) — insert rows directly for now,

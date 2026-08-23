@@ -127,19 +127,22 @@ def volatility(close: pd.Series, period: int = 20) -> pd.Series:
 
 
 def find_pivots(df: pd.DataFrame, window: int = 5) -> tuple[list[float], list[float]]:
-    """Local-extrema support/resistance levels over the last `window`-bar neighborhoods."""
+    """Local-extrema support/resistance levels over the last `window`-bar neighborhoods.
+
+    Vectorized via a centered rolling max/min rather than a per-bar Python
+    loop with pandas `.iloc` slicing — the latter is easily 100x slower
+    over a few hundred bars, which matters when this runs once per bar in
+    a walk-forward backtest.
+    """
     highs = df["high"]
     lows = df["low"]
-    resistance_levels: list[float] = []
-    support_levels: list[float] = []
+    full_window = 2 * window + 1
 
-    for i in range(window, len(df) - window):
-        window_high = highs.iloc[i - window : i + window + 1]
-        window_low = lows.iloc[i - window : i + window + 1]
-        if highs.iloc[i] == window_high.max():
-            resistance_levels.append(float(highs.iloc[i]))
-        if lows.iloc[i] == window_low.min():
-            support_levels.append(float(lows.iloc[i]))
+    rolling_max = highs.rolling(window=full_window, center=True, min_periods=full_window).max()
+    rolling_min = lows.rolling(window=full_window, center=True, min_periods=full_window).min()
+
+    resistance_levels = highs[highs == rolling_max].tolist()
+    support_levels = lows[lows == rolling_min].tolist()
 
     return sorted(set(support_levels)), sorted(set(resistance_levels))
 

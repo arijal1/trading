@@ -1,5 +1,1 @@
-"""Placeholder package for the strategy engine — not yet implemented.
-
-See docs/ARCHITECTURE.md Section 13 (Implementation Roadmap) for which
-phase adds this engine's real logic.
-"""
+"""Entry strategy engine (brief Section 16) — see signals.py and aggregator.py."""

@@ -219,8 +219,20 @@ Phases follow the brief's Section 59 exactly:
   cycle; `GET /accounts/{id}`, `GET /accounts/{id}/portfolio`,
   `GET /accounts/{id}/positions`, `GET /accounts/{id}/orders`,
   `GET /accounts/{id}/trades`, `POST /accounts/{id}/paper/tick`.
-- **Phase 5**: dashboard (Next.js), notifications (Telegram), monitoring
-  (Prometheus/Grafana).
+- **Phase 5 (notifications + monitoring done, dashboard pending)**:
+  `NotificationChannel` abstraction (docs/NOTIFICATIONS.md) — mirrors
+  `ExchangeAdapter`'s pattern — plus `LogNotificationChannel` (always
+  available) and `TelegramNotificationChannel` (public Bot API, added
+  only when both credentials are configured); `NotificationService` fans
+  one event out to every channel and persists an `alerts` row per
+  attempt regardless of delivery outcome; wired into `PaperTradingSession`
+  (position opened/exit/capital-recovered) and `system_state` (emergency-
+  stop/pause/resume). Prometheus `GET /metrics` (docs/MONITORING.md) —
+  order/position/risk/notification counters plus tick-duration and
+  kill-switch gauges, all with bounded label sets; a documented starter
+  Grafana panel list (no live Grafana instance in this environment to
+  export a verified dashboard JSON against). Dashboard (Next.js) remains
+  a separate, larger follow-on increment.
 - **Phase 6**: live exchange adapter, live order management, security
   hardening.
 - **Phase 7**: production deployment, backup/recovery, docs.

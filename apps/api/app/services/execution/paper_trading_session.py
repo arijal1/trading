@@ -19,14 +19,26 @@ backtest engine's synchronous execution already documents).
 """
 from __future__ import annotations
 
+import time
+import uuid
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.core.metrics import (
+    CAPITAL_RECOVERIES,
+    PAPER_TICK_DURATION,
+    PAPER_TICKS,
+    POSITIONS_EXITED,
+    POSITIONS_OPENED,
+    RISK_CHECK_REJECTIONS,
+)
 from app.db.models.core import Account, Candle, Market
 from app.db.models.trading import Fill, Order
 from app.schemas.exchange import TIMEFRAME_SECONDS, OrderSide, OrderType, Timeframe
+from app.schemas.notification import NotificationMessage, NotificationSeverity
 from app.schemas.paper_trading import PaperTradingConfig, TickAction, TickResult
 from app.schemas.portfolio import PositionSizeRequest
 from app.schemas.strategy import SignalDirection
@@ -34,6 +46,10 @@ from app.services.exchanges.base import ExchangeAdapter
 from app.services.execution.exit_engine import compute_dynamic_stop_loss
 from app.services.execution.order_manager import OrderManager
 from app.services.execution.position_manager import PositionManager
+from app.services.notifications.service import (
+    NotificationService,
+    build_default_notification_service,
+)
 from app.services.portfolio.position_sizing import calculate_position_size
 from app.services.portfolio.profit_manager import (
     apply_capital_recovery_fill,
@@ -61,7 +77,12 @@ async def _latest_fill(db: AsyncSession, order: Order) -> Fill:
 
 
 class PaperTradingSession:
-    def __init__(self, adapter: ExchangeAdapter, config: PaperTradingConfig | None = None) -> None:
+    def __init__(
+        self,
+        adapter: ExchangeAdapter,
+        config: PaperTradingConfig | None = None,
+        notification_service: NotificationService | None = None,
+    ) -> None:
         self.adapter = adapter
         self.config = config or PaperTradingConfig()
         self.order_manager = OrderManager(adapter)
@@ -73,8 +94,22 @@ class PaperTradingSession:
             sell_threshold=self.config.sell_threshold,
         )
         self.ta_engine = TechnicalAnalysisEngine()
+        self.notification_service = notification_service or build_default_notification_service(
+            get_settings()
+        )
 
     async def run_tick(
+        self, db: AsyncSession, *, account: Account, market: Market, timeframe: Timeframe
+    ) -> TickResult:
+        start = time.perf_counter()
+        try:
+            result = await self._run_tick(db, account=account, market=market, timeframe=timeframe)
+        finally:
+            PAPER_TICK_DURATION.observe(time.perf_counter() - start)
+        PAPER_TICKS.labels(action=result.action.value).inc()
+        return result
+
+    async def _run_tick(
         self, db: AsyncSession, *, account: Account, market: Market, timeframe: Timeframe
     ) -> TickResult:
         candles_result = await db.execute(
@@ -146,6 +181,15 @@ class PaperTradingSession:
             closed = await self.position_manager.apply_sell_fill(
                 db, position=position, fill=sell_fill, exit_trigger=exit_decision.trigger.value
             )
+            POSITIONS_EXITED.labels(trigger=exit_decision.trigger.value).inc()
+            await self._notify(
+                db,
+                account_id=account.id,
+                event_type="POSITION_EXIT",
+                severity=NotificationSeverity.INFO,
+                title=f"{market.symbol} position closed ({exit_decision.trigger.value})",
+                body=exit_decision.reason,
+            )
             return TickResult(
                 action=TickAction.EXIT,
                 detail=exit_decision.reason,
@@ -173,6 +217,15 @@ class PaperTradingSession:
             recovery_fill = await _latest_fill(db, recovery_order)
             runner = await apply_capital_recovery_fill(
                 db, position=position, fill=recovery_fill, config=self.config.profit_manager
+            )
+            CAPITAL_RECOVERIES.inc()
+            await self._notify(
+                db,
+                account_id=account.id,
+                event_type="CAPITAL_RECOVERED",
+                severity=NotificationSeverity.INFO,
+                title=f"{market.symbol} capital recovered",
+                body=proposal.reason,
             )
             return TickResult(
                 action=TickAction.CAPITAL_RECOVERED,
@@ -240,6 +293,9 @@ class PaperTradingSession:
             proposed_notional=size_result.notional_value,
         )
         if not risk_check.approved:
+            for check_name, passed in risk_check.checks.items():
+                if not passed:
+                    RISK_CHECK_REJECTIONS.labels(check=check_name).inc()
             return TickResult(action=TickAction.SKIPPED_RISK, detail=risk_check.reason or "n/a")
 
         max_hold_seconds = (
@@ -266,9 +322,40 @@ class PaperTradingSession:
             trailing_stop_pct=self.config.trailing_stop_pct,
             max_hold_seconds=max_hold_seconds,
         )
+        POSITIONS_OPENED.inc()
+        detail = decision.reason_codes and ", ".join(decision.reason_codes) or "entry signal"
+        await self._notify(
+            db,
+            account_id=account.id,
+            event_type="POSITION_OPENED",
+            severity=NotificationSeverity.INFO,
+            title=f"{market.symbol} position opened",
+            body=detail,
+        )
         return TickResult(
             action=TickAction.OPENED,
-            detail=decision.reason_codes and ", ".join(decision.reason_codes) or "entry signal",
+            detail=detail,
             order_id=buy_order.id,
             position_id=position.id,
+        )
+
+    async def _notify(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: uuid.UUID,
+        event_type: str,
+        severity: NotificationSeverity,
+        title: str,
+        body: str,
+    ) -> None:
+        await self.notification_service.notify(
+            db,
+            NotificationMessage(
+                event_type=event_type,
+                severity=severity,
+                title=title,
+                body=body,
+                account_id=account_id,
+            ),
         )

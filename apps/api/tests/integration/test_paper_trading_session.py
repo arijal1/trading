@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+from app.db.models.audit import Alert
 from app.db.models.core import Account, Asset, Candle, Exchange, Market, User
 from app.db.models.trading import Order, Position
 from app.schemas.exchange import Timeframe
@@ -208,6 +209,34 @@ async def test_opens_a_position_on_forced_buy_signal(db_session, priced_market, 
         TickAction.EXIT,
         TickAction.CAPITAL_RECOVERED,
     )
+
+
+@pytest.mark.asyncio
+async def test_opening_a_position_dispatches_a_notification(db_session, priced_market, monkeypatch):
+    session = PaperTradingSession(MockExchangeAdapter())
+    monkeypatch.setattr(session.aggregator, "aggregate", _force_buy_decision)
+
+    result = await session.run_tick(
+        db_session,
+        account=priced_market["account"],
+        market=priced_market["market"],
+        timeframe=Timeframe.H1,
+    )
+    assert result.action == TickAction.OPENED
+
+    alerts = (
+        (
+            await db_session.execute(
+                select(Alert).where(Alert.account_id == priced_market["account"].id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(alerts) == 1
+    assert alerts[0].type == "POSITION_OPENED"
+    assert alerts[0].channel == "log"
+    assert alerts[0].payload["delivered"] is True
 
 
 @pytest.mark.asyncio

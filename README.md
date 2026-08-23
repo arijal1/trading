@@ -27,6 +27,8 @@ placing a real order regardless of configuration (see
 - `docs/BACKTESTING.md` — backtesting engine design and scope
 - `docs/PAPER_TRADING.md` — order manager, position manager, profit manager, paper-trading orchestrator
 - `docs/COPY_TRADING.md` — trader performance tracking, copy-trade decisioning
+- `docs/NOTIFICATIONS.md` — notification channels, dispatch points
+- `docs/MONITORING.md` — Prometheus metrics, suggested Grafana panels
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 

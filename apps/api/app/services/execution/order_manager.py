@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import ORDERS_FILLED, ORDERS_REJECTED, ORDERS_SUBMITTED
 from app.db.models.trading import Fill, Order, OrderEvent
 from app.schemas.exchange import OrderRequest, OrderSide, OrderStatus, OrderType
 from app.services.exchanges.base import ExchangeAdapter, ExchangeAdapterError
@@ -106,6 +107,7 @@ class OrderManager:
             limit_price=limit_price,
             stop_price=stop_price,
         )
+        ORDERS_SUBMITTED.labels(side=side.value, type=order_type.value).inc()
         try:
             result = await self._place(request)
         except ExchangeAdapterError as exc:
@@ -118,6 +120,7 @@ class OrderManager:
             )
             await db.commit()
             await db.refresh(order)
+            ORDERS_REJECTED.labels(side=side.value).inc()
             return order
 
         await self._apply_result(db, order, result)
@@ -206,6 +209,7 @@ class OrderManager:
                     },
                 )
             )
+            ORDERS_FILLED.labels(side=order.side).inc()
         elif previous_status != order.status:
             db.add(
                 OrderEvent(

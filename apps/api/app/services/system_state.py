@@ -24,12 +24,20 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import EMERGENCY_STOP_ACTIVE, TRADING_HALTED
 from app.db.models.audit import AuditLog
 from app.db.models.core import SystemState
+from app.schemas.notification import NotificationMessage, NotificationSeverity
+from app.services.notifications.service import NotificationService
 
 # Fixed sentinel id for the one-and-only system_state row. Not a real
 # entity identity, just a constant to upsert against.
 SYSTEM_STATE_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+def _set_gauges(state: SystemState) -> None:
+    EMERGENCY_STOP_ACTIVE.set(1 if state.is_emergency_stopped else 0)
+    TRADING_HALTED.set(1 if state.is_trading_halted else 0)
 
 
 async def get_or_create_state(db: AsyncSession) -> SystemState:
@@ -40,10 +48,18 @@ async def get_or_create_state(db: AsyncSession) -> SystemState:
     )
     await db.execute(stmt)
     result = await db.execute(select(SystemState).where(SystemState.id == SYSTEM_STATE_ID))
-    return result.scalar_one()
+    state = result.scalar_one()
+    _set_gauges(state)
+    return state
 
 
-async def emergency_stop(db: AsyncSession, *, reason: str, actor: str) -> SystemState:
+async def emergency_stop(
+    db: AsyncSession,
+    *,
+    reason: str,
+    actor: str,
+    notification_service: NotificationService | None = None,
+) -> SystemState:
     state = await get_or_create_state(db)
     before = {"is_emergency_stopped": state.is_emergency_stopped}
     state.is_emergency_stopped = True
@@ -63,10 +79,28 @@ async def emergency_stop(db: AsyncSession, *, reason: str, actor: str) -> System
     )
     await db.commit()
     await db.refresh(state)
+    _set_gauges(state)
+
+    if notification_service is not None:
+        await notification_service.notify(
+            db,
+            NotificationMessage(
+                event_type="EMERGENCY_STOP",
+                severity=NotificationSeverity.CRITICAL,
+                title="Emergency stop activated",
+                body=f"Trading halted by {actor}: {reason}",
+            ),
+        )
     return state
 
 
-async def resume_trading(db: AsyncSession, *, reason: str, actor: str) -> SystemState:
+async def resume_trading(
+    db: AsyncSession,
+    *,
+    reason: str,
+    actor: str,
+    notification_service: NotificationService | None = None,
+) -> SystemState:
     state = await get_or_create_state(db)
     before = {
         "is_emergency_stopped": state.is_emergency_stopped,
@@ -89,10 +123,28 @@ async def resume_trading(db: AsyncSession, *, reason: str, actor: str) -> System
     )
     await db.commit()
     await db.refresh(state)
+    _set_gauges(state)
+
+    if notification_service is not None:
+        await notification_service.notify(
+            db,
+            NotificationMessage(
+                event_type="RESUME_TRADING",
+                severity=NotificationSeverity.INFO,
+                title="Trading resumed",
+                body=f"Trading resumed by {actor}: {reason}",
+            ),
+        )
     return state
 
 
-async def pause_trading(db: AsyncSession, *, reason: str, actor: str) -> SystemState:
+async def pause_trading(
+    db: AsyncSession,
+    *,
+    reason: str,
+    actor: str,
+    notification_service: NotificationService | None = None,
+) -> SystemState:
     state = await get_or_create_state(db)
     before = {"is_trading_halted": state.is_trading_halted}
     state.is_trading_halted = True
@@ -111,4 +163,16 @@ async def pause_trading(db: AsyncSession, *, reason: str, actor: str) -> SystemS
     )
     await db.commit()
     await db.refresh(state)
+    _set_gauges(state)
+
+    if notification_service is not None:
+        await notification_service.notify(
+            db,
+            NotificationMessage(
+                event_type="PAUSE_TRADING",
+                severity=NotificationSeverity.WARNING,
+                title="Trading paused",
+                body=f"Trading paused by {actor}: {reason}",
+            ),
+        )
     return state

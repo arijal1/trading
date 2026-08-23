@@ -11,9 +11,9 @@ middleware can be added without reshaping routes.
 |---|---|---|
 | GET | `/api/v1/health` | Liveness probe: process is up. No DB dependency. |
 | GET | `/api/v1/system/status` | Readiness: DB connectivity, current `TRADING_MODE`, emergency-stop / trading-halt state from `system_state`. |
-| POST | `/api/v1/trading/emergency-stop` | Sets `system_state.is_emergency_stopped = true`, persists reason/actor, logs an `audit_logs` row. Requires explicit manual reset — see below. |
-| POST | `/api/v1/trading/resume` | Manual reset of `is_emergency_stopped` / `is_trading_halted`. Requires a reason; audited. |
-| POST | `/api/v1/trading/pause` | Sets `is_trading_halted = true` (softer than emergency-stop: no forced position closure). |
+| POST | `/api/v1/trading/emergency-stop` | Sets `system_state.is_emergency_stopped = true`, persists reason/actor, logs an `audit_logs` row, and dispatches a CRITICAL notification (Phase 5, `docs/NOTIFICATIONS.md`). Requires explicit manual reset — see below. |
+| POST | `/api/v1/trading/resume` | Manual reset of `is_emergency_stopped` / `is_trading_halted`. Requires a reason; audited; dispatches an INFO notification. |
+| POST | `/api/v1/trading/pause` | Sets `is_trading_halted = true` (softer than emergency-stop: no forced position closure); dispatches a WARNING notification. |
 
 ## Implemented in Phase 2
 
@@ -53,6 +53,12 @@ since auth lands in Phase 5+. See `docs/PAPER_TRADING.md`.
 | GET | `/api/v1/accounts/{id}/orders` | Order history, newest first (`limit`, capped at 1000). |
 | GET | `/api/v1/accounts/{id}/trades` | Fill history, newest first (`limit`, capped at 1000). |
 | POST | `/api/v1/accounts/{id}/paper/tick` | Runs one `PaperTradingSession.run_tick` decision cycle for `(account, market_id, timeframe)`. Requires `account.mode == "paper"` (`422` otherwise). Returns the `TickResult` — one of `OPENED` / `EXIT` / `CAPITAL_RECOVERED` / `HOLD` / `SKIPPED_RISK` / `SKIPPED_SIZE` / `NO_SIGNAL` / `INSUFFICIENT_DATA` — and always records a portfolio snapshot regardless of outcome. |
+
+## Implemented in Phase 5
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/metrics` | Prometheus text-format exposition. Deliberately unversioned (not under `/api/v1`) since scrape configs assume a fixed path. See `docs/MONITORING.md`. |
 
 ## Planned (documented now, implemented in later phases)
 

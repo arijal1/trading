@@ -12,8 +12,10 @@ from app.schemas.system import (
     SystemStatusResponse,
 )
 from app.services import system_state as system_state_service
+from app.services.notifications.service import build_default_notification_service
 
 router = APIRouter(tags=["system"])
+_notification_service = build_default_notification_service(get_settings())
 
 
 @router.get("/system/status", response_model=SystemStatusResponse)
@@ -43,7 +45,7 @@ async def emergency_stop(
     payload: EmergencyActionRequest, db: AsyncSession = Depends(get_db)
 ) -> SystemStateResponse:
     state = await system_state_service.emergency_stop(
-        db, reason=payload.reason, actor=payload.actor
+        db, reason=payload.reason, actor=payload.actor, notification_service=_notification_service
     )
     return SystemStateResponse(
         is_emergency_stopped=state.is_emergency_stopped,
@@ -59,7 +61,7 @@ async def resume_trading(
     payload: EmergencyActionRequest, db: AsyncSession = Depends(get_db)
 ) -> SystemStateResponse:
     state = await system_state_service.resume_trading(
-        db, reason=payload.reason, actor=payload.actor
+        db, reason=payload.reason, actor=payload.actor, notification_service=_notification_service
     )
     return SystemStateResponse(
         is_emergency_stopped=state.is_emergency_stopped,
@@ -75,7 +77,7 @@ async def pause_trading(
     payload: EmergencyActionRequest, db: AsyncSession = Depends(get_db)
 ) -> SystemStateResponse:
     state = await system_state_service.pause_trading(
-        db, reason=payload.reason, actor=payload.actor
+        db, reason=payload.reason, actor=payload.actor, notification_service=_notification_service
     )
     return SystemStateResponse(
         is_emergency_stopped=state.is_emergency_stopped,

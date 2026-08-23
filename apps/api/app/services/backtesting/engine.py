@@ -154,31 +154,36 @@ class BacktestEngine:
             )
 
             if position is not None:
-                position.exit_state = advance_position_state(position.exit_state, bar.close)
+                position.exit_state = advance_position_state(position.exit_state, bar.high)
                 exit_decision = self.exit_engine.evaluate(
-                    position.exit_state, current_price=bar.close, current_ts=bar.ts, ta=ta
+                    position.exit_state,
+                    current_high=bar.high,
+                    current_low=bar.low,
+                    current_close=bar.close,
+                    current_ts=bar.ts,
+                    ta=ta,
                 )
                 if exit_decision.should_exit:
-                    fill_price = self._apply_slippage(next_bar.open, selling=True)
-                    fee = fill_price * position.quantity * self.taker_fee_pct / Decimal(100)
-                    proceeds = fill_price * position.quantity - fee
-                    cost_basis = position.exit_state.entry_price * position.quantity
-                    pnl = proceeds - cost_basis - position.entry_fee
-                    cash += proceeds
-                    trades.append(
-                        TradeRecord(
-                            entry_ts=position.exit_state.opened_at,
-                            exit_ts=next_bar.ts,
-                            entry_price=position.exit_state.entry_price,
-                            exit_price=fill_price,
-                            quantity=position.quantity,
-                            pnl=pnl,
-                            pnl_pct=float(pnl / cost_basis) if cost_basis else 0.0,
-                            exit_trigger=exit_decision.trigger.value,
-                            fees_paid=position.entry_fee + fee,
-                            holding_bars=i + 1 - position.entry_bar_index,
-                        )
+                    if exit_decision.fills_intrabar:
+                        # Stop/trailing-stop/take-profit: a resting order
+                        # that filled the moment this (already-closed)
+                        # bar's low/high crossed it — not deferred to the
+                        # next bar.
+                        raw_exit_price = exit_decision.exit_price
+                        assert raw_exit_price is not None
+                        exit_ts, exit_bar_index = bar.ts, i
+                    else:
+                        raw_exit_price = next_bar.open
+                        exit_ts, exit_bar_index = next_bar.ts, i + 1
+                    cash, trade = self._close_position(
+                        position,
+                        raw_exit_price=raw_exit_price,
+                        exit_ts=exit_ts,
+                        exit_trigger=exit_decision.trigger.value,
+                        exit_bar_index=exit_bar_index,
+                        cash=cash,
                     )
+                    trades.append(trade)
                     position = None
             else:
                 atr = ta.indicators.atr_14
@@ -207,26 +212,15 @@ class BacktestEngine:
 
         if position is not None:
             final_bar = bars[-1]
-            fill_price = self._apply_slippage(final_bar.close, selling=True)
-            fee = fill_price * position.quantity * self.taker_fee_pct / Decimal(100)
-            proceeds = fill_price * position.quantity - fee
-            cost_basis = position.exit_state.entry_price * position.quantity
-            pnl = proceeds - cost_basis - position.entry_fee
-            cash += proceeds
-            trades.append(
-                TradeRecord(
-                    entry_ts=position.exit_state.opened_at,
-                    exit_ts=final_bar.ts,
-                    entry_price=position.exit_state.entry_price,
-                    exit_price=fill_price,
-                    quantity=position.quantity,
-                    pnl=pnl,
-                    pnl_pct=float(pnl / cost_basis) if cost_basis else 0.0,
-                    exit_trigger="END_OF_DATA",
-                    fees_paid=position.entry_fee + fee,
-                    holding_bars=len(bars) - 1 - position.entry_bar_index,
-                )
+            cash, trade = self._close_position(
+                position,
+                raw_exit_price=final_bar.close,
+                exit_ts=final_bar.ts,
+                exit_trigger="END_OF_DATA",
+                exit_bar_index=len(bars) - 1,
+                cash=cash,
             )
+            trades.append(trade)
             equity_curve.append(float(cash))
 
         metrics = compute_performance_metrics(equity_curve, trades, timeframe=timeframe.value)
@@ -244,6 +238,40 @@ class BacktestEngine:
     def _apply_slippage(self, raw_price: Decimal, *, selling: bool) -> Decimal:
         slip = raw_price * self.config.slippage_pct
         return raw_price - slip if selling else raw_price + slip
+
+    def _close_position(
+        self,
+        position: _OpenPosition,
+        *,
+        raw_exit_price: Decimal,
+        exit_ts: datetime,
+        exit_trigger: str,
+        exit_bar_index: int,
+        cash: Decimal,
+    ) -> tuple[Decimal, TradeRecord]:
+        """Fill the sell, realize PnL/fees, and return updated cash plus the trade record.
+
+        Shared by both the mid-loop exit-trigger path and the end-of-data
+        forced liquidation, which previously duplicated this PnL/fee math.
+        """
+        fill_price = self._apply_slippage(raw_exit_price, selling=True)
+        fee = fill_price * position.quantity * self.taker_fee_pct / Decimal(100)
+        proceeds = fill_price * position.quantity - fee
+        cost_basis = position.exit_state.entry_price * position.quantity
+        pnl = proceeds - cost_basis - position.entry_fee
+        trade = TradeRecord(
+            entry_ts=position.exit_state.opened_at,
+            exit_ts=exit_ts,
+            entry_price=position.exit_state.entry_price,
+            exit_price=fill_price,
+            quantity=position.quantity,
+            pnl=pnl,
+            pnl_pct=float(pnl / cost_basis) if cost_basis else 0.0,
+            exit_trigger=exit_trigger,
+            fees_paid=position.entry_fee + fee,
+            holding_bars=exit_bar_index - position.entry_bar_index,
+        )
+        return cash + proceeds, trade
 
     def _try_open_position(
         self,

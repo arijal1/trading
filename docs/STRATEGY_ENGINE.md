@@ -31,10 +31,25 @@ buy." A `HOLD` is the common case, not a failure mode.
 - `compute_dynamic_stop_loss` sizes the initial stop off ATR, not a fixed
   percentage.
 - `advance_position_state` ratchets a trailing stop up as price makes new
-  highs — it never loosens a stop that's already tightened.
-- `ExitEngine.evaluate` checks, in order: stop/trailing-stop, take-profit,
-  max-hold-time, trend-reversal, momentum-failure — returning the first
-  trigger that fires.
+  highs — it never loosens a stop that's already tightened. Takes the
+  bar's *high* (the actual intrabar peak), not its close.
+- `ExitEngine.evaluate` checks, in order: stop/trailing-stop (against the
+  bar's *low*), take-profit (against the bar's *high*), max-hold-time,
+  trend-reversal, momentum-failure (all three against the bar's *close*)
+  — returning the first trigger that fires. `ExitDecision.fills_intrabar`
+  tells the caller whether the fill happens within the same bar (true for
+  stop/trailing-stop/take-profit — they're resting orders, and the bar
+  being evaluated is already fully known, so checking its high/low isn't
+  look-ahead) or is deferred to the next bar's open (false for the
+  close-based signal exits, exactly like entries).
+
+  This intrabar check is not optional polish: checking only the close
+  would let a bar that pierced the stop and recovered by its close skip
+  the exit entirely, silently overstating backtested performance. That
+  was a real bug in an earlier version of this module, found via review
+  and fixed — see the regression tests in `tests/unit/test_exit_engine.py`
+  (`test_evaluate_detects_intrabar_stop_hit_even_when_close_recovers_above_stop`
+  and its take-profit counterpart).
 
 Scope note: Section 19 describes a multi-stage break-even -> profit-lock
 -> trail progression, and Section 2/42 describe capital-recovery partial

@@ -40,3 +40,10 @@ class ExitDecision(BaseModel):
     trigger: ExitTrigger
     exit_price: Decimal | None = None
     reason: str
+    # True for stop-loss/trailing-stop/take-profit: these are resting
+    # orders that fill the moment the bar's high/low crosses them, i.e.
+    # within the same (already-closed, fully-known) bar being evaluated.
+    # False for signal-based exits (max hold time, trend reversal,
+    # momentum failure): those are decisions made from the bar's close,
+    # like entries, and fill at the next bar's open to avoid look-ahead.
+    fills_intrabar: bool = False

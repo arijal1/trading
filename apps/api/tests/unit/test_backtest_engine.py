@@ -70,9 +70,13 @@ def test_every_trade_exit_after_entry_in_time():
     candles = _mock_candles("BTC/USD", hours=250)
     result = _engine().run(candles, symbol="BTC/USD", timeframe=Timeframe.H1)
     for trade in result.trades:
-        assert trade.exit_ts > trade.entry_ts
+        # >= not >: an intrabar stop/take-profit hit on the very bar a
+        # position was entered on is a legitimate 0-bar-hold trade, and
+        # with only OHLC (not tick) data both are stamped with that bar's
+        # own timestamp.
+        assert trade.exit_ts >= trade.entry_ts
         assert trade.quantity > 0
-        assert trade.holding_bars >= 1
+        assert trade.holding_bars >= 0
 
 
 def test_fees_are_charged_on_every_trade():

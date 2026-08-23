@@ -13,8 +13,13 @@ information from the future (brief Section 36's "no look-ahead" rule).
 bar i closes
   -> TechnicalAnalysisEngine.analyze(candles[i-window+1 : i+1])
   -> if a position is open:
-       advance_position_state (ratchet trailing stop)
-       ExitEngine.evaluate -> exit at bar i+1's open if triggered
+       advance_position_state (ratchet trailing stop off bar i's high)
+       ExitEngine.evaluate (checks bar i's high/low/close):
+         stop-loss / trailing-stop / take-profit -> fills within bar i
+           itself, at the stop/target price (these are resting orders;
+           the bar is already fully known, so this is not look-ahead)
+         max-hold-time / trend-reversal / momentum-failure -> fills at
+           bar i+1's open (decisions made from the close, like entries)
      else:
        generate_all_signals -> StrategyAggregator.aggregate
        if BUY: compute_dynamic_stop_loss (ATR) -> calculate_position_size
@@ -28,6 +33,16 @@ as `slippage_pct` applied against the trade direction on every fill
 (worse price when buying, worse price when selling) — this is independent
 of the adapter, since backtests fill against the candles' own OHLCV, not
 the adapter's live-price simulation.
+
+**Intrabar stop/target detection matters.** An earlier version of this
+engine checked stop-loss/take-profit against only the bar's close, so a
+bar that dipped through the stop and recovered by its close silently
+skipped the exit — understating realized risk and overstating backtested
+performance (a real bug, found and fixed via review; see
+`docs/STRATEGY_ENGINE.md`'s exit-engine section for the fix and its
+`fills_intrabar` mechanism). If a single bar's range crosses both the
+stop and the take-profit, the engine conservatively assumes the stop was
+hit first — there's no tick-level data to resolve the actual order.
 
 ## Scope (documented, not oversights)
 
@@ -66,3 +81,12 @@ candles, persists to the `backtests` table against a get-or-created
 `technical_composite_v1` `strategies` row, and returns the full result.
 `GET /api/v1/backtests/{id}` reads it back. See `docs/API_DESIGN.md` for
 the request/response shape.
+
+`app/services/strategy/registry.py`'s `get_or_create_composite_strategy`
+upserts (`INSERT ... ON CONFLICT DO NOTHING` against a `(name, version)`
+unique constraint) rather than check-then-insert, so that two concurrent
+first-ever `/backtests` requests can't both observe no existing row and
+both insert a `technical_composite_v1` strategy — a real race found via
+review and fixed, with a regression test
+(`test_concurrent_first_callers_never_create_duplicate_rows`) that runs
+10 real concurrent DB sessions against it.

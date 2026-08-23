@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,7 @@ from app.db.base import Base, TimestampMixin, UUIDPKMixin
 
 class Strategy(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "strategies"
+    __table_args__ = (UniqueConstraint("name", "version", name="uq_strategy_name_version"),)
 
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False, default="0.1.0")

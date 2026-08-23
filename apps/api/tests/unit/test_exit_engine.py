@@ -51,6 +51,21 @@ def _ta(**overrides) -> TechnicalAnalysisResult:
     return TechnicalAnalysisResult(**defaults)
 
 
+def _evaluate(
+    engine: ExitEngine,
+    state: PositionExitState,
+    *,
+    high: Decimal,
+    low: Decimal,
+    close: Decimal,
+    ts: datetime = NOW,
+    ta: TechnicalAnalysisResult | None = None,
+):
+    return engine.evaluate(
+        state, current_high=high, current_low=low, current_close=close, current_ts=ts, ta=ta
+    )
+
+
 def test_compute_dynamic_stop_loss_hand_computed():
     stop = compute_dynamic_stop_loss(
         entry_price=Decimal("100"), atr=Decimal("2"), atr_multiplier=Decimal("2.5")
@@ -87,15 +102,56 @@ def test_advance_position_state_never_lowers_stop():
 def test_evaluate_triggers_stop_loss_at_initial_stop():
     engine = ExitEngine()
     state = _state(stop_price=Decimal("95"))
-    decision = engine.evaluate(state, current_price=Decimal("94"), current_ts=NOW)
+    decision = _evaluate(engine, state, high=Decimal("96"), low=Decimal("94"), close=Decimal("94"))
     assert decision.should_exit is True
+    assert decision.trigger == ExitTrigger.STOP_LOSS
+    assert decision.fills_intrabar is True
+
+
+def test_evaluate_detects_intrabar_stop_hit_even_when_close_recovers_above_stop():
+    """The core fidelity fix: a bar whose low pierced the stop but whose
+    close recovered above it must still trigger — the stop is a resting
+    order, not a close-only check."""
+    engine = ExitEngine()
+    state = _state(stop_price=Decimal("95"))
+    decision = _evaluate(
+        engine, state, high=Decimal("101"), low=Decimal("90"), close=Decimal("99")
+    )
+    assert decision.should_exit is True
+    assert decision.trigger == ExitTrigger.STOP_LOSS
+    assert decision.exit_price == Decimal("95")
+    assert decision.fills_intrabar is True
+
+
+def test_evaluate_detects_intrabar_take_profit_even_when_close_pulls_back():
+    engine = ExitEngine()
+    state = _state(take_profit_price=Decimal("120"))
+    decision = _evaluate(
+        engine, state, high=Decimal("125"), low=Decimal("115"), close=Decimal("116")
+    )
+    assert decision.should_exit is True
+    assert decision.trigger == ExitTrigger.TAKE_PROFIT
+    assert decision.exit_price == Decimal("120")
+    assert decision.fills_intrabar is True
+
+
+def test_evaluate_stop_takes_priority_when_both_touched_in_same_bar():
+    """Conservative assumption: if a bar's range spans both the stop and
+    the take-profit, assume the worse outcome (stop) fired first."""
+    engine = ExitEngine()
+    state = _state(stop_price=Decimal("95"), take_profit_price=Decimal("120"))
+    decision = _evaluate(
+        engine, state, high=Decimal("121"), low=Decimal("94"), close=Decimal("110")
+    )
     assert decision.trigger == ExitTrigger.STOP_LOSS
 
 
 def test_evaluate_triggers_trailing_stop_when_stop_above_entry():
     engine = ExitEngine()
     state = _state(entry_price=Decimal("100"), stop_price=Decimal("110"))
-    decision = engine.evaluate(state, current_price=Decimal("109"), current_ts=NOW)
+    decision = _evaluate(
+        engine, state, high=Decimal("112"), low=Decimal("109"), close=Decimal("109")
+    )
     assert decision.should_exit is True
     assert decision.trigger == ExitTrigger.TRAILING_STOP
 
@@ -103,7 +159,9 @@ def test_evaluate_triggers_trailing_stop_when_stop_above_entry():
 def test_evaluate_triggers_take_profit():
     engine = ExitEngine()
     state = _state(take_profit_price=Decimal("120"))
-    decision = engine.evaluate(state, current_price=Decimal("121"), current_ts=NOW)
+    decision = _evaluate(
+        engine, state, high=Decimal("121"), low=Decimal("119"), close=Decimal("121")
+    )
     assert decision.should_exit is True
     assert decision.trigger == ExitTrigger.TAKE_PROFIT
 
@@ -111,18 +169,29 @@ def test_evaluate_triggers_take_profit():
 def test_evaluate_triggers_max_hold_time():
     engine = ExitEngine()
     state = _state(max_hold_seconds=3600)
-    decision = engine.evaluate(
-        state, current_price=Decimal("101"), current_ts=NOW + timedelta(hours=2)
+    decision = _evaluate(
+        engine,
+        state,
+        high=Decimal("102"),
+        low=Decimal("100"),
+        close=Decimal("101"),
+        ts=NOW + timedelta(hours=2),
     )
     assert decision.should_exit is True
     assert decision.trigger == ExitTrigger.MAX_HOLD_TIME
+    assert decision.fills_intrabar is False
 
 
 def test_evaluate_does_not_trigger_max_hold_time_early():
     engine = ExitEngine()
     state = _state(max_hold_seconds=3600)
-    decision = engine.evaluate(
-        state, current_price=Decimal("101"), current_ts=NOW + timedelta(minutes=10)
+    decision = _evaluate(
+        engine,
+        state,
+        high=Decimal("102"),
+        low=Decimal("100"),
+        close=Decimal("101"),
+        ts=NOW + timedelta(minutes=10),
     )
     assert decision.should_exit is False
 
@@ -131,16 +200,21 @@ def test_evaluate_triggers_trend_reversal():
     engine = ExitEngine()
     state = _state()
     ta = _ta(trend_direction="DOWNTREND")
-    decision = engine.evaluate(state, current_price=Decimal("101"), current_ts=NOW, ta=ta)
+    decision = _evaluate(
+        engine, state, high=Decimal("102"), low=Decimal("100"), close=Decimal("101"), ta=ta
+    )
     assert decision.should_exit is True
     assert decision.trigger == ExitTrigger.TREND_REVERSAL
+    assert decision.fills_intrabar is False
 
 
 def test_evaluate_triggers_momentum_failure():
     engine = ExitEngine(momentum_failure_score=25.0)
     state = _state()
     ta = _ta(trend_direction="SIDEWAYS", momentum_score=10.0)
-    decision = engine.evaluate(state, current_price=Decimal("101"), current_ts=NOW, ta=ta)
+    decision = _evaluate(
+        engine, state, high=Decimal("102"), low=Decimal("100"), close=Decimal("101"), ta=ta
+    )
     assert decision.should_exit is True
     assert decision.trigger == ExitTrigger.MOMENTUM_FAILURE
 
@@ -149,7 +223,9 @@ def test_evaluate_no_exit_when_healthy():
     engine = ExitEngine()
     state = _state()
     ta = _ta(trend_direction="UPTREND", momentum_score=70.0)
-    decision = engine.evaluate(state, current_price=Decimal("105"), current_ts=NOW, ta=ta)
+    decision = _evaluate(
+        engine, state, high=Decimal("106"), low=Decimal("104"), close=Decimal("105"), ta=ta
+    )
     assert decision.should_exit is False
     assert decision.trigger == ExitTrigger.NONE
 
@@ -158,5 +234,7 @@ def test_stop_loss_takes_priority_over_trend_reversal():
     engine = ExitEngine()
     state = _state(stop_price=Decimal("95"))
     ta = _ta(trend_direction="DOWNTREND")
-    decision = engine.evaluate(state, current_price=Decimal("94"), current_ts=NOW, ta=ta)
+    decision = _evaluate(
+        engine, state, high=Decimal("96"), low=Decimal("94"), close=Decimal("94"), ta=ta
+    )
     assert decision.trigger == ExitTrigger.STOP_LOSS

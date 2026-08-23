@@ -55,41 +55,58 @@ docs/                architecture and design docs
 .github/workflows/   CI
 ```
 
-## Running locally
+## Quickstart
 
-Requires Docker + Docker Compose.
+Requires Docker + Docker Compose. From a clean clone:
 
 ```bash
 cp .env.example .env
-docker compose -f infrastructure/docker-compose.yml up --build
+docker compose -f infrastructure/docker-compose.yml up --build -d
+
+# One-time: create the demo exchange, markets, and a paper account.
+# (There is no onboarding endpoint yet — see docs/API_DESIGN.md.)
+docker compose -f infrastructure/docker-compose.yml exec api \
+  python -m app.cli seed-demo
 ```
 
-The API is then available at `http://localhost:8000`:
+Then open **http://localhost:3000**. You should see the system-status
+panel and one "Demo Paper Account".
+
+To make it actually trade (paper only — nothing here can touch real
+money), click into the account and:
+
+1. Sync some price history first, or the tick has nothing to analyse:
+   ```bash
+   curl http://localhost:8000/api/v1/markets          # copy a market id
+   curl -X POST "http://localhost:8000/api/v1/markets/<MARKET_ID>/sync?timeframe=1h&hours=300"
+   ```
+2. Press **Run paper tick** on the account page.
+
+Each tick is one decision cycle. Most ticks return `HOLD` — that is the
+strategy declining to trade, not a failure. Ticking repeatedly as new
+candles arrive is what produces entries and exits.
+
+The API is at http://localhost:8000 (`/docs` for interactive OpenAPI),
+Prometheus metrics at http://localhost:8000/metrics, and Prometheus
+itself at http://localhost:9090.
+
+### Key endpoints
 
 - `GET /api/v1/health` — liveness
 - `GET /api/v1/system/status` — DB connectivity, trading mode, emergency-stop state
 - `POST /api/v1/trading/emergency-stop` — kill switch (`{"reason": "...", "actor": "..."}`)
-- `POST /api/v1/trading/resume` — clears emergency-stop / halt state
-- `POST /api/v1/trading/pause` — halts new trades without full emergency stop
-- `GET /api/v1/assets`, `GET /api/v1/markets` — registered assets/markets
-- `POST /api/v1/markets/{id}/sync?timeframe=1h&hours=72` — ingest OHLCV via the mock exchange adapter
-- `GET /api/v1/markets/{id}/candles?timeframe=1h` — stored candles
-- `GET /api/v1/markets/{id}/technical-analysis?timeframe=1h` — indicator scores over stored candles
-- `POST /api/v1/backtests` — run a backtest over a market's stored candles (`{"market_id": "...", "timeframe": "1h", "candle_limit": 300}`)
-- `GET /api/v1/backtests/{id}` — read back a backtest result
+- `POST /api/v1/trading/resume` / `POST /api/v1/trading/pause`
+- `GET /api/v1/trading/live-readiness?account_id=...` — why live trading is (correctly) refused
+- `GET /api/v1/assets`, `GET /api/v1/markets`, `GET /api/v1/accounts`
+- `POST /api/v1/markets/{id}/sync?timeframe=1h&hours=300` — ingest OHLCV via the mock adapter
+- `GET /api/v1/markets/{id}/technical-analysis?timeframe=1h`
+- `POST /api/v1/backtests` — backtest over stored candles
+- `POST /api/v1/accounts/{id}/paper/tick` — one paper-trading decision cycle
 
-Markets/assets/exchanges/accounts currently have no creation endpoint
-(it lands alongside real exchange onboarding, which is blocked on
-choosing a venue — see `docs/LIVE_TRADING.md`) — insert rows
-directly for now, e.g. via `psql` against the `exchanges`, `assets`,
-`markets`, and `accounts` tables.
-
-The dashboard is then available at `http://localhost:3000` (see
-`docs/DASHBOARD.md`) — it talks directly to the API from the browser, so
-`CORS_ALLOWED_ORIGINS` on the API side must include the dashboard's
-origin (the `.env.example` defaults on both sides already match for
-local development). `GET /metrics` (Prometheus text format,
-`docs/MONITORING.md`) is served unversioned on the API's own port.
+Assets/exchanges/markets/accounts beyond the demo seed have no creation
+endpoint yet (that lands with real exchange onboarding, which is blocked
+on choosing a venue — see `docs/LIVE_TRADING.md`); insert rows directly
+via `psql` for now.
 
 ## Running without Docker
 

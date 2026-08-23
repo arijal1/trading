@@ -41,6 +41,13 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    # Migrations run on start rather than in the image build: the database
+    # only exists at run time, and without this a fresh `compose up` serves
+    # an API whose every DB-backed endpoint 500s against empty schema.
+    # `alembic upgrade head` is idempotent, so restarts are safe.
+    command: >-
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
     depends_on:
       postgres:
         condition: service_healthy

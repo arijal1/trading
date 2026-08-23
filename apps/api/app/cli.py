@@ -71,6 +71,103 @@ def _cmd_generate_keys(_args: argparse.Namespace) -> int:
     return 0
 
 
+async def _seed_demo() -> int:
+    """Create the minimum rows needed for the dashboard to show something.
+
+    Exists because there is no onboarding endpoint yet (see
+    docs/API_DESIGN.md): without this, a fresh install has no exchange,
+    market, or account, so the dashboard renders empty and the paper-tick
+    endpoint has nothing to tick. Idempotent — safe to re-run.
+
+    Creates a *paper* account only. Nothing here can touch real money.
+    """
+    from decimal import Decimal
+
+    from app.db.models.core import Account, Asset, Exchange, Market, User
+
+    settings = get_settings()
+    engine = create_async_engine(settings.DATABASE_URL)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        async with session_factory() as db:
+            user = (
+                await db.execute(select(User).where(User.email == "demo@localhost"))
+            ).scalar_one_or_none()
+            if user is None:
+                # Unusable password: this account is a data owner, not a
+                # login. Real logins come from `create-admin`.
+                user = User(
+                    email="demo@localhost", hashed_password="!", role="user"
+                )
+                db.add(user)
+                await db.flush()
+
+            exchange = (
+                await db.execute(select(Exchange).where(Exchange.name == "Mock Exchange"))
+            ).scalar_one_or_none()
+            if exchange is None:
+                exchange = Exchange(name="Mock Exchange", adapter_type="mock")
+                db.add(exchange)
+                await db.flush()
+
+            assets: dict[str, Asset] = {}
+            for symbol in ("BTC", "ETH", "USD"):
+                asset = (
+                    await db.execute(select(Asset).where(Asset.symbol == symbol))
+                ).scalar_one_or_none()
+                if asset is None:
+                    asset = Asset(symbol=symbol)
+                    db.add(asset)
+                    await db.flush()
+                assets[symbol] = asset
+
+            for base in ("BTC", "ETH"):
+                symbol = f"{base}/USD"
+                market = (
+                    await db.execute(select(Market).where(Market.symbol == symbol))
+                ).scalar_one_or_none()
+                if market is None:
+                    db.add(
+                        Market(
+                            exchange_id=exchange.id,
+                            base_asset_id=assets[base].id,
+                            quote_asset_id=assets["USD"].id,
+                            symbol=symbol,
+                        )
+                    )
+
+            account = (
+                await db.execute(
+                    select(Account).where(Account.name == "Demo Paper Account")
+                )
+            ).scalar_one_or_none()
+            if account is None:
+                account = Account(
+                    user_id=user.id,
+                    name="Demo Paper Account",
+                    mode="paper",
+                    starting_equity=Decimal("10000"),
+                )
+                db.add(account)
+
+            await db.commit()
+            await db.refresh(account)
+
+        print("Seeded demo data:")
+        print("  exchange : Mock Exchange")
+        print("  markets  : BTC/USD, ETH/USD")
+        print(f"  account  : Demo Paper Account (paper, $10,000)  id={account.id}")
+        print()
+        print("Next: sync candles, then run a tick from the dashboard.")
+        return 0
+    finally:
+        await engine.dispose()
+
+
+def _cmd_seed_demo(_args: argparse.Namespace) -> int:
+    return asyncio.run(_seed_demo())
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -81,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
 
     gen = sub.add_parser("generate-keys", help="Generate encryption/JWT secrets")
     gen.set_defaults(func=_cmd_generate_keys)
+
+    seed = sub.add_parser(
+        "seed-demo", help="Create a demo paper account, exchange, and markets"
+    )
+    seed.set_defaults(func=_cmd_seed_demo)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -36,6 +36,15 @@ async def seeded_account(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_list_accounts_includes_seeded_account(client: AsyncClient, seeded_account):
+    account = seeded_account["account"]
+    response = await client.get("/api/v1/accounts")
+    assert response.status_code == 200
+    body = response.json()
+    assert any(a["id"] == str(account.id) for a in body)
+
+
+@pytest.mark.asyncio
 async def test_get_account_404_for_unknown_id(client: AsyncClient):
     response = await client.get("/api/v1/accounts/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404

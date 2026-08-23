@@ -47,6 +47,23 @@ async def _get_account_or_404(db: AsyncSession, account_id: uuid.UUID) -> Accoun
     return account
 
 
+@router.get("/accounts", response_model=list[AccountResponse])
+async def list_accounts(db: AsyncSession = Depends(get_db)) -> list[AccountResponse]:
+    result = await db.execute(select(Account).order_by(Account.created_at.desc()))
+    return [
+        AccountResponse(
+            id=a.id,
+            user_id=a.user_id,
+            name=a.name,
+            mode=a.mode,
+            base_currency=a.base_currency,
+            starting_equity=a.starting_equity,
+            created_at=a.created_at,
+        )
+        for a in result.scalars()
+    ]
+
+
 @router.get("/accounts/{account_id}", response_model=AccountResponse)
 async def get_account(
     account_id: uuid.UUID, db: AsyncSession = Depends(get_db)

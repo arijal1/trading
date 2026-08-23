@@ -5,6 +5,12 @@ are Pydantic models (no free-form dicts). Auth (JWT + RBAC) lands in Phase
 5+; Phase 1 endpoints are unauthenticated but structurally isolated so auth
 middleware can be added without reshaping routes.
 
+CORS (`CORSMiddleware`, `CORS_ALLOWED_ORIGINS` setting) is enabled so the
+Next.js dashboard (`apps/web`, `docs/DASHBOARD.md`) can call this API
+directly from the browser — a different origin. Defaults to
+`localhost:3000`/`127.0.0.1:3000`; there is no wildcard/allow-all
+fallback.
+
 ## Implemented in Phase 1
 
 | Method | Path | Description |
@@ -47,6 +53,7 @@ since auth lands in Phase 5+. See `docs/PAPER_TRADING.md`.
 
 | Method | Path | Description |
 |---|---|---|
+| GET | `/api/v1/accounts` | List every account (added in Phase 5 for the dashboard — a dashboard that can't discover any accounts isn't useful). |
 | GET | `/api/v1/accounts/{id}` | Account balances/mode/starting equity. |
 | GET | `/api/v1/accounts/{id}/portfolio` | DB-reconstructed `PortfolioState`: cash (from the fill ledger), equity, exposure by asset, peak/day-start/week-start equity. |
 | GET | `/api/v1/accounts/{id}/positions` | Positions for the account, newest first (`status` query param to filter). |

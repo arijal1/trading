@@ -1,0 +1,32 @@
+FROM node:22-slim AS deps
+
+WORKDIR /app
+COPY apps/web/package.json apps/web/package-lock.json /app/
+RUN npm ci
+
+FROM node:22-slim AS build
+
+WORKDIR /app
+COPY --from=deps /app/node_modules /app/node_modules
+COPY apps/web /app
+
+# The API base URL must be baked in at build time since every fetch here
+# runs client-side in the browser (see apps/web/lib/api.ts) — there is no
+# server-side proxy to inject it at request time.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+RUN npx next typegen && npm run build
+
+FROM node:22-slim AS runtime
+
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/public /app/public
+COPY --from=build /app/.next /app/.next
+COPY --from=build /app/node_modules /app/node_modules
+COPY --from=build /app/package.json /app/package.json
+COPY --from=build /app/next.config.ts /app/next.config.ts
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

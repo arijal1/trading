@@ -26,6 +26,11 @@
   interpolation into SQL.
 - AuthN/AuthZ (Phase 5+): JWT-based sessions, role-based access control on
   every state-changing endpoint.
+- CORS (Phase 5): `CORSMiddleware` restricted to an explicit allowlist
+  (`CORS_ALLOWED_ORIGINS`, defaulting to the local dashboard's origin
+  only) — never a wildcard — since the dashboard (`apps/web`) calls this
+  API directly from the browser and every write endpoint (including the
+  emergency-stop kill switch) is reachable to whatever origin is allowed.
 - Rate limiting (Phase 5+) on the public API; exchange-side rate limiting
   (Section 53) with backoff/jitter/queuing in the market-data and
   execution layers from Phase 2 onward.

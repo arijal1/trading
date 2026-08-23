@@ -53,7 +53,7 @@ Every arrow above is a typed, logged, and persisted transition (see
 | Package/dep mgmt     | Poetry                                    | reproducible envs, dev/prod extras |
 | Logging              | structlog -> JSON                         | machine-parseable, ships to any log backend |
 | Testing              | pytest, pytest-asyncio, httpx AsyncClient | async-first stack |
-| Frontend (later)     | Next.js + TypeScript + Tailwind           | per brief, not built in Phase 1 |
+| Frontend             | Next.js + TypeScript + Tailwind           | `apps/web`, Phase 5 — see docs/DASHBOARD.md |
 | Infra (local)        | Docker Compose                            | Postgres, Redis, API, worker, (later) web |
 | Observability        | Prometheus client + `/metrics`, Grafana provisioning later | per brief |
 | CI                   | GitHub Actions: lint (ruff), type-check (mypy), pytest | |
@@ -77,9 +77,9 @@ docs/            this document + schema/API/risk/security design notes
 .github/workflows/  CI
 ```
 
-`apps/web` and most of `services/*` internals are added in later phases; the
-package boundaries exist now so later work drops into place rather than
-requiring a restructure.
+`apps/web` (the Next.js dashboard, docs/DASHBOARD.md) was added in Phase 5;
+the package boundary existed from Phase 1 so it dropped into place rather
+than requiring a restructure.
 
 ## 5. Database Schema
 
@@ -219,20 +219,26 @@ Phases follow the brief's Section 59 exactly:
   cycle; `GET /accounts/{id}`, `GET /accounts/{id}/portfolio`,
   `GET /accounts/{id}/positions`, `GET /accounts/{id}/orders`,
   `GET /accounts/{id}/trades`, `POST /accounts/{id}/paper/tick`.
-- **Phase 5 (notifications + monitoring done, dashboard pending)**:
-  `NotificationChannel` abstraction (docs/NOTIFICATIONS.md) — mirrors
-  `ExchangeAdapter`'s pattern — plus `LogNotificationChannel` (always
-  available) and `TelegramNotificationChannel` (public Bot API, added
-  only when both credentials are configured); `NotificationService` fans
-  one event out to every channel and persists an `alerts` row per
-  attempt regardless of delivery outcome; wired into `PaperTradingSession`
-  (position opened/exit/capital-recovered) and `system_state` (emergency-
+- **Phase 5 (done)**: `NotificationChannel` abstraction
+  (docs/NOTIFICATIONS.md) — mirrors `ExchangeAdapter`'s pattern — plus
+  `LogNotificationChannel` (always available) and
+  `TelegramNotificationChannel` (public Bot API, added only when both
+  credentials are configured); `NotificationService` fans one event out
+  to every channel and persists an `alerts` row per attempt regardless of
+  delivery outcome; wired into `PaperTradingSession` (position
+  opened/exit/capital-recovered) and `system_state` (emergency-
   stop/pause/resume). Prometheus `GET /metrics` (docs/MONITORING.md) —
   order/position/risk/notification counters plus tick-duration and
   kill-switch gauges, all with bounded label sets; a documented starter
   Grafana panel list (no live Grafana instance in this environment to
-  export a verified dashboard JSON against). Dashboard (Next.js) remains
-  a separate, larger follow-on increment.
+  export a verified dashboard JSON against). `apps/web`
+  (docs/DASHBOARD.md) — Next.js 16 dashboard: system status +
+  emergency-stop/pause/resume controls, an account list, and a per-
+  account portfolio/positions/orders/trades view with a "run a paper
+  tick" control, talking directly to the API from the browser (added
+  `CORSMiddleware` + `GET /accounts` list endpoint to support it).
+  Verified with a live Playwright pass against a running API and real
+  Postgres, since this phase has no automated frontend test suite yet.
 - **Phase 6**: live exchange adapter, live order management, security
   hardening.
 - **Phase 7**: production deployment, backup/recovery, docs.

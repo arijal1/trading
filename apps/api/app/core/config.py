@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://trading:trading@localhost:5432/trading"
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # --- CORS (Phase 5: the Next.js dashboard fetches this API directly
+    # from the browser, a different origin) ---
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     # --- Trading mode (Section 3) ---
     TRADING_MODE: TradingMode = TradingMode.PAPER
 
@@ -96,6 +100,10 @@ class Settings(BaseSettings):
     @property
     def take_profit_levels(self) -> list[float]:
         return [float(x) for x in self.TAKE_PROFIT_LEVELS.split(",") if x.strip()]
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        return [x.strip() for x in self.CORS_ALLOWED_ORIGINS.split(",") if x.strip()]
 
     def live_trading_allowed(self) -> bool:
         """All Section 39 guardrails must hold before any live order path is enabled."""

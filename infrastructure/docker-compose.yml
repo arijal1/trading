@@ -47,6 +47,18 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    build:
+      context: ..
+      dockerfile: infrastructure/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
   prometheus:
     image: prom/prometheus:latest
     restart: unless-stopped

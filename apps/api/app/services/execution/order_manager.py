@@ -35,9 +35,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.metrics import ORDERS_FILLED, ORDERS_REJECTED, ORDERS_SUBMITTED
+from app.db.models.core import Account, Exchange
 from app.db.models.trading import Fill, Order, OrderEvent
 from app.schemas.exchange import OrderRequest, OrderSide, OrderStatus, OrderType
+from app.schemas.live_trading import LiveTradingDecision
 from app.services.exchanges.base import ExchangeAdapter, ExchangeAdapterError
+from app.services.execution.live_guard import (
+    LiveTradingGuard,
+    LiveTradingRefusedError,
+    is_live_order,
+)
 
 _TERMINAL_STATUSES = {
     OrderStatus.FILLED.value,
@@ -55,8 +62,12 @@ class OrderReconciliationRequiredError(RuntimeError):
 
 
 class OrderManager:
-    def __init__(self, adapter: ExchangeAdapter) -> None:
+    def __init__(self, adapter: ExchangeAdapter, guard: LiveTradingGuard | None = None) -> None:
         self.adapter = adapter
+        # Constructed here rather than accepted as an optional behaviour
+        # flag: there is deliberately no way to build an OrderManager that
+        # skips the live guard (brief Section 39).
+        self.guard = guard or LiveTradingGuard()
 
     async def submit_order(
         self,
@@ -72,12 +83,25 @@ class OrderManager:
         stop_price: Decimal | None = None,
         decision_id: uuid.UUID | None = None,
         client_order_id: str | None = None,
+        exchange: Exchange | None = None,
     ) -> Order:
         client_order_id = client_order_id or str(uuid.uuid4())
 
         order = await self._get_existing(db, client_order_id)
         if order is not None:
+            # Reconciliation is read-only against the venue and is how a
+            # stuck order gets resolved, so it stays available even when
+            # the guard would refuse a *new* order.
             return await self._reconcile(db, order, symbol)
+
+        await self._enforce_live_guard(
+            db,
+            account_id=account_id,
+            symbol=symbol,
+            quantity=quantity,
+            limit_price=limit_price,
+            exchange=exchange,
+        )
 
         order, created_by_me = await self._create_order(
             db,
@@ -125,6 +149,56 @@ class OrderManager:
 
         await self._apply_result(db, order, result)
         return order
+
+    async def _enforce_live_guard(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: uuid.UUID,
+        symbol: str,
+        quantity: Decimal,
+        limit_price: Decimal | None,
+        exchange: Exchange | None,
+    ) -> None:
+        """Refuse a live order unless every Section 39 guardrail holds.
+
+        A missing account is refused rather than skipped: "we could not
+        determine whether this is live" must never resolve to "assume
+        paper and proceed".
+        """
+        account = await db.get(Account, account_id)
+        if account is None:
+            raise LiveTradingRefusedError(
+                LiveTradingDecision(
+                    allowed=False,
+                    failed_checks=[],
+                    reason=(
+                        f"account {account_id} not found; cannot establish whether this "
+                        "order is live, so refusing it"
+                    ),
+                )
+            )
+
+        if not is_live_order(account):
+            return  # paper/shadow order: the guard governs real money only.
+
+        # Notional for the MAX_LIVE_CAPITAL cap. A limit price is exact; a
+        # market order is valued at the venue's current price. If that
+        # price is unavailable the guard still runs, with a notional of 0,
+        # which fails the cap check — refusing rather than guessing.
+        reference_price = limit_price
+        if reference_price is None:
+            try:
+                reference_price = await self.adapter.get_market_price(symbol)
+            except Exception:  # noqa: BLE001 - unknown price must not mean "allowed"
+                reference_price = Decimal(0)
+
+        await self.guard.require(
+            db,
+            account=account,
+            exchange=exchange,
+            notional_value=quantity * reference_price,
+        )
 
     async def _get_existing(self, db: AsyncSession, client_order_id: str) -> Order | None:
         result = await db.execute(select(Order).where(Order.client_order_id == client_order_id))

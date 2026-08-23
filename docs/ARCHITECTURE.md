@@ -239,8 +239,27 @@ Phases follow the brief's Section 59 exactly:
   `CORSMiddleware` + `GET /accounts` list endpoint to support it).
   Verified with a live Playwright pass against a running API and real
   Postgres, since this phase has no automated frontend test suite yet.
-- **Phase 6**: live exchange adapter, live order management, security
-  hardening.
+- **Phase 6 (safety layer done; venue integration deliberately deferred)**:
+  encrypted credential vault (docs/LIVE_TRADING.md) — Fernet-encrypted
+  exchange API keys with no plaintext fallback, withdrawal-restriction
+  enforced at registration, and a redacted `__repr__`; `LiveTradingGuard`
+  — the non-bypassable Section 39 pre-flight gate wired *into*
+  `OrderManager` (no `skip_guard` parameter exists, and a structural test
+  fails if one is ever added), failing closed on any error and naming
+  every failed check; `GET /trading/live-readiness` to dry-run the
+  guardrails without placing an order; JWT auth + RBAC (docs/AUTH.md) with
+  Argon2id hashing, algorithm pinning, enumeration-resistant login, and
+  immediate revocation, gated behind `AUTH_REQUIRED` (default `false` to
+  preserve the Phase 1-5 posture); secret redaction in structured logs;
+  a resilience layer (token-bucket rate limiting, full-jitter backoff,
+  circuit breaker) whose central rule is that an order submission is
+  *never* automatically retried; and `LiveExchangeAdapter`, a
+  venue-agnostic signed-REST base.
+  **No concrete exchange venue is implemented** — no exchange has been
+  chosen, the brief forbids reverse-engineering a private API, and no
+  credentials exist here to validate one against even once before
+  shipping. See docs/LIVE_TRADING.md for the full reasoning and the
+  subclass checklist.
 - **Phase 7**: production deployment, backup/recovery, docs.
 
 No live-trading code is implemented until paper trading, risk controls,
@@ -249,13 +268,19 @@ passing, per the brief's explicit requirement.
 
 ## Assumptions made (documented per brief Section 62)
 
-- No specific exchange was named and no credentials were provided, so Phase
-  1 ships the `ExchangeAdapter` interface plus a schema-ready `mock`
-  implementation only; a real adapter is added once a specific,
-  API-key-bearing exchange is chosen (Section 4 of the brief explicitly
-  forbids reverse-engineering private endpoints).
-- Default `TRADING_MODE=PAPER`; live trading is structurally impossible
-  until Phase 6+ code exists, regardless of configuration.
+- No specific exchange was named and no credentials were provided, so
+  Phase 1 shipped the `ExchangeAdapter` interface plus a schema-ready
+  `mock` implementation only. **This is still true after Phase 6**: the
+  venue-agnostic `LiveExchangeAdapter` base exists, but no concrete venue
+  is integrated, because choosing one depends on the operator's
+  jurisdiction/account/terms, the brief forbids reverse-engineering a
+  private API, and no credentials exist here to validate an integration
+  against even once before shipping. See docs/LIVE_TRADING.md.
+- Default `TRADING_MODE=PAPER`. Live trading remains impossible today for
+  two independent reasons: no exchange venue is integrated, and the
+  default configuration fails five separate `LiveTradingGuard` checks. The
+  guard is wired into `OrderManager` with no bypass parameter, and a
+  structural test fails if one is ever added.
 - Monolith-first over literal microservices (see Section 2) — a documented
   deviation from the brief's directory sketch, chosen for correctness and
   auditability at this stage.

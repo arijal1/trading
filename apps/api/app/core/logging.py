@@ -7,6 +7,7 @@ import sys
 import structlog
 
 from app.core.config import get_settings
+from app.core.redaction import redact_processor
 
 
 def configure_logging() -> None:
@@ -26,6 +27,9 @@ def configure_logging() -> None:
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
+        # Last before rendering, so it also covers keys added by the
+        # processors above and by any bound context.
+        redact_processor,
     ]
 
     renderer: structlog.types.Processor = (

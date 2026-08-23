@@ -1,6 +1,6 @@
 # AI Crypto Trading & Copy-Trading Platform
 
-Status: **Phase 5 in progress — dashboard, notifications, monitoring**.
+Status: **Phase 6 — live-trading safety layer and security hardening**.
 See `docs/ARCHITECTURE.md` for the full architecture assessment,
 technology decisions, and phased roadmap (Phases 1-7). This is not yet a
 live trading system: there is no AI decision layer and no order-execution
@@ -16,11 +16,16 @@ manager, position manager, capital-recovery profit manager, copy-trading
 decision engines, and the orchestrator tying them together) — all real,
 tested, and exercised end-to-end, nothing simulated in the plumbing sense.
 Phase 5 adds a notification service (log + Telegram channels), Prometheus
-metrics, and a Next.js dashboard (`apps/web`) on top of that.
+metrics, and a Next.js dashboard (`apps/web`). Phase 6 adds the
+live-trading safety layer: an encrypted credential vault, a
+non-bypassable Section 39 pre-flight guard, JWT auth + RBAC, secret
+redaction in logs, and a resilient venue-agnostic adapter base.
 
-Trading mode defaults to `paper` and there is currently no code capable of
-placing a real order regardless of configuration (see
-`docs/SECURITY.md` and `docs/RISK_MANAGEMENT.md`).
+Trading mode defaults to `paper`, and **no exchange venue is integrated**,
+so there is currently no code capable of placing a real order regardless
+of configuration. Even with a venue, the default configuration refuses
+live trading at five independent gates — see `docs/LIVE_TRADING.md`,
+`docs/SECURITY.md`, and `docs/RISK_MANAGEMENT.md`.
 
 ## Documentation
 
@@ -35,6 +40,8 @@ placing a real order regardless of configuration (see
 - `docs/NOTIFICATIONS.md` — notification channels, dispatch points
 - `docs/MONITORING.md` — Prometheus metrics, suggested Grafana panels
 - `docs/DASHBOARD.md` — Next.js dashboard architecture and scope
+- `docs/LIVE_TRADING.md` — live-trading guardrails, credential vault, why no venue is wired up
+- `docs/AUTH.md` — JWT auth, RBAC, admin bootstrap
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 
@@ -72,7 +79,8 @@ The API is then available at `http://localhost:8000`:
 - `GET /api/v1/backtests/{id}` — read back a backtest result
 
 Markets/assets/exchanges/accounts currently have no creation endpoint
-(Phase 6 adds one alongside real exchange onboarding) — insert rows
+(it lands alongside real exchange onboarding, which is blocked on
+choosing a venue — see `docs/LIVE_TRADING.md`) — insert rows
 directly for now, e.g. via `psql` against the `exchanges`, `assets`,
 `markets`, and `accounts` tables.
 
@@ -123,3 +131,14 @@ All runtime configuration is environment variables — see `.env.example`
 for the full list (trading mode, live-trading guardrails, capital-recovery
 parameters, copy-trading limits, portfolio risk limits). Never commit a
 real `.env` file.
+
+`MASTER_ENCRYPTION_KEY` and `JWT_SECRET_KEY` have no defaults by design —
+generate both with:
+
+```bash
+cd apps/api && poetry run python -m app.cli generate-keys
+```
+
+An unset encryption key makes storing exchange credentials fail loudly
+rather than silently writing plaintext; a default signing key would be a
+publicly-known key anyone could forge admin tokens with.

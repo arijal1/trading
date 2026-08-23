@@ -1,9 +1,10 @@
 # API Design
 
 Base path: `/api/v1`. All responses are JSON; all request/response bodies
-are Pydantic models (no free-form dicts). Auth (JWT + RBAC) lands in Phase
-5+; Phase 1 endpoints are unauthenticated but structurally isolated so auth
-middleware can be added without reshaping routes.
+are Pydantic models (no free-form dicts). Auth (JWT + RBAC) landed in
+Phase 6 and is enforced when `AUTH_REQUIRED=true`; it defaults to `false`,
+which preserves the earlier unauthenticated posture — see `docs/AUTH.md`
+for that trade-off stated in full.
 
 CORS (`CORSMiddleware`, `CORS_ALLOWED_ORIGINS` setting) is enabled so the
 Next.js dashboard (`apps/web`, `docs/DASHBOARD.md`) can call this API
@@ -48,8 +49,11 @@ exchange adapter (`docs/EXCHANGE_ADAPTER.md`).
 Accounts are created directly in the DB for now, matching the same
 "no onboarding endpoint yet" pattern already established for
 markets/exchanges in Phase 2 — every route below takes `account_id` as a
-path parameter rather than deriving it from an authenticated session,
-since auth lands in Phase 5+. See `docs/PAPER_TRADING.md`.
+path parameter rather than deriving it from an authenticated session.
+(Phase 6 added authentication, but these routes still take an explicit
+`account_id` rather than inferring it from the token — scoping accounts to
+their owning user is not yet implemented; see `docs/AUTH.md`.)
+See `docs/PAPER_TRADING.md`.
 
 | Method | Path | Description |
 |---|---|---|
@@ -66,6 +70,23 @@ since auth lands in Phase 5+. See `docs/PAPER_TRADING.md`.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/metrics` | Prometheus text-format exposition. Deliberately unversioned (not under `/api/v1`) since scrape configs assume a fixed path. See `docs/MONITORING.md`. |
+
+## Implemented in Phase 6
+
+Auth is enforced only when `AUTH_REQUIRED=true` (default `false` preserves
+the Phase 1-5 unauthenticated posture — see `docs/AUTH.md`). `/health` and
+`/metrics` stay open either way.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | open | Exchange email/password for a JWT. Identical 401 for unknown user / wrong password / inactive user (user-enumeration resistance). |
+| POST | `/api/v1/auth/register` | admin | Create a user. The *first* admin is provisioned out-of-band via `python -m app.cli create-admin`. |
+| GET | `/api/v1/auth/me` | authenticated | Current token's identity and role. |
+| GET | `/api/v1/trading/live-readiness` | admin | Dry-runs every Section 39 guardrail for an account without placing an order, returning exactly which checks fail. See `docs/LIVE_TRADING.md`. |
+
+The kill-switch routes (`/trading/emergency-stop`, `/trading/resume`,
+`/trading/pause`) now require the `admin` role; `POST /accounts/{id}/paper/tick`
+requires an authenticated user.
 
 ## Planned (documented now, implemented in later phases)
 

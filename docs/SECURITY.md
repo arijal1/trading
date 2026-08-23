@@ -24,8 +24,26 @@
   invalid/unexpected shapes are rejected, never coerced silently.
 - SQL injection: SQLAlchemy parameterized queries only; no raw string
   interpolation into SQL.
-- AuthN/AuthZ (Phase 5+): JWT-based sessions, role-based access control on
-  every state-changing endpoint.
+- AuthN/AuthZ (Phase 6, docs/AUTH.md): JWT bearer tokens with Argon2id
+  password hashing, decode-time algorithm pinning (defeats `alg: none`
+  forgery), a minimum 32-byte signing key, enumeration-resistant login,
+  and immediate revocation via a per-request user lookup. Role-based
+  access control gates the kill switch, live-readiness, and user
+  registration. Enforced when `AUTH_REQUIRED=true`; the default `false`
+  preserves the Phase 1-5 unauthenticated posture, which means the API
+  must not be exposed beyond a trusted network in that state.
+- Secrets at rest (Phase 6, docs/LIVE_TRADING.md): exchange API
+  credentials are Fernet-encrypted (authenticated AES) before reaching the
+  database, with no plaintext fallback — an unset `MASTER_ENCRYPTION_KEY`
+  raises rather than silently storing plaintext. Verified by a test
+  asserting a plaintext canary appears nowhere in the stored row.
+- Secret redaction in logs (Phase 6): a structlog processor redacts
+  sensitive keys (api_key, secret, token, password, authorization,
+  signature, …) anywhere in an event, including nested structures. This is
+  defence in depth — the primary control is that no code passes a secret
+  to a log call — because "no code ever does X" is a claim that decays as
+  a codebase grows, and a leaked key in a log aggregator is not
+  recoverable after the fact.
 - CORS (Phase 5): `CORSMiddleware` restricted to an explicit allowlist
   (`CORS_ALLOWED_ORIGINS`, defaulting to the local dashboard's origin
   only) — never a wildcard — since the dashboard (`apps/web`) calls this

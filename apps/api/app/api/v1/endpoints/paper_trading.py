@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import CurrentUser, get_current_user
 from app.db.models.core import Account, Market
 from app.db.models.trading import Fill, Order, Position
 from app.db.session import get_db
@@ -191,7 +192,10 @@ async def list_trades(
 
 @router.post("/accounts/{account_id}/paper/tick", response_model=PaperTickResponse)
 async def run_paper_tick(
-    account_id: uuid.UUID, request: PaperTickRequest, db: AsyncSession = Depends(get_db)
+    account_id: uuid.UUID,
+    request: PaperTickRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: CurrentUser = Depends(get_current_user),
 ) -> PaperTickResponse:
     account = await _get_account_or_404(db, account_id)
     if account.mode != "paper":

@@ -97,6 +97,25 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     AI_MODEL_VERSION: str = "unset"
 
+    # --- Secrets at rest (Phase 6) ---
+    # Fernet key for encrypting exchange API credentials in the database.
+    # No default: there is deliberately no "encryption off" fallback, so a
+    # deployment that forgets to set this fails loudly at the point of use
+    # rather than silently storing exchange keys in plaintext.
+    MASTER_ENCRYPTION_KEY: str | None = None
+
+    # --- Auth (Phase 6) ---
+    # Also no default: an unset secret must not silently become a
+    # well-known signing key that anyone could forge admin tokens with.
+    JWT_SECRET_KEY: str | None = None
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60
+    # Defaults false so Phase 1-5 endpoints and the dashboard keep working
+    # unchanged; turning auth on is a deliberate deployment decision.
+    # See docs/AUTH.md — with this false the API is unauthenticated and
+    # must not be exposed beyond a trusted network.
+    AUTH_REQUIRED: bool = False
+
     @property
     def take_profit_levels(self) -> list[float]:
         return [float(x) for x in self.TAKE_PROFIT_LEVELS.split(",") if x.strip()]

@@ -25,6 +25,8 @@ placing a real order regardless of configuration (see
 - `docs/EXCHANGE_ADAPTER.md` — exchange abstraction + mock adapter
 - `docs/STRATEGY_ENGINE.md` — entry strategies, exit engine, position sizing, portfolio risk engine
 - `docs/BACKTESTING.md` — backtesting engine design and scope
+- `docs/PAPER_TRADING.md` — order manager, position manager, profit manager, paper-trading orchestrator
+- `docs/COPY_TRADING.md` — trader performance tracking, copy-trade decisioning
 - `docs/RISK_MANAGEMENT.md` — risk-control layering
 - `docs/SECURITY.md` — secrets, auth, AI-safety boundary
 

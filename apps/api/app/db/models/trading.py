@@ -115,6 +115,13 @@ class Position(Base, UUIDPKMixin, TimestampMixin):
     avg_entry_price: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False, default=0)
     capital_recovered: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
     profit_locked: Mapped[Decimal] = mapped_column(Numeric(38, 18), default=0)
+    # Exit-engine state (brief Sections 17-19), persisted so it survives
+    # between paper-trading ticks rather than living only in memory.
+    stop_price: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    trailing_stop_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    highest_price_since_entry: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    max_hold_seconds: Mapped[int | None] = mapped_column()
 
 
 class PositionEvent(Base, UUIDPKMixin):

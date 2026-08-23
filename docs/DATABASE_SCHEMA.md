@@ -27,7 +27,7 @@ float) to avoid rounding drift in P&L math.
 | `orders` | order intents/records | account_id, decision_id, client_order_id (unique, idempotency key), exchange_order_id, asset_id, side, type, quantity, limit_price, stop_price, status |
 | `order_events` | append-only order status transitions | order_id, event_type, payload (jsonb), occurred_at |
 | `fills` | executed fill records | order_id, price, quantity, fee, slippage, filled_at |
-| `positions` | open/closed positions | account_id, asset_id, status (OPENING/OPEN/CAPITAL_RECOVERY_PENDING/PROFIT_RUNNER/CLOSING/CLOSED), initial_capital, quantity, avg_entry_price, capital_recovered, profit_locked |
+| `positions` | open/closed positions | account_id, asset_id, status (OPENING/OPEN/CAPITAL_RECOVERY_PENDING/PROFIT_RUNNER/CLOSING/CLOSED), initial_capital, quantity, avg_entry_price, capital_recovered, profit_locked, stop_price, take_profit_price, trailing_stop_pct, highest_price_since_entry, max_hold_seconds (exit-engine state, added Phase 4 so it survives between paper-trading ticks — see `docs/PAPER_TRADING.md`) |
 | `position_events` | append-only position lifecycle events | position_id, event_type, payload (jsonb), occurred_at |
 | `portfolio_snapshots` | periodic portfolio state | account_id, equity, cash, exposure, unrealized_pnl, realized_pnl, drawdown, snapshot_at |
 | `risk_events` | risk-limit breaches / halts | account_id, event_type, details (jsonb), occurred_at |

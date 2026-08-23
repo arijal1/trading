@@ -37,25 +37,40 @@ exchange adapter (`docs/EXCHANGE_ADAPTER.md`).
 | POST | `/api/v1/backtests` | Runs `BacktestEngine` over a market's stored candles (`market_id`, `timeframe`, `candle_limit`, optional `config` overrides — see `docs/BACKTESTING.md`). Synchronous (no worker queue yet). Persists to `backtests` against a get-or-created `technical_composite_v1` strategy row. Returns `422` if fewer than `MIN_BARS_REQUIRED + 1` (36) candles are available. |
 | GET | `/api/v1/backtests/{id}` | Reads back a persisted backtest result. |
 
+## Implemented in Phase 4
+
+Accounts are created directly in the DB for now, matching the same
+"no onboarding endpoint yet" pattern already established for
+markets/exchanges in Phase 2 — every route below takes `account_id` as a
+path parameter rather than deriving it from an authenticated session,
+since auth lands in Phase 5+. See `docs/PAPER_TRADING.md`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/accounts/{id}` | Account balances/mode/starting equity. |
+| GET | `/api/v1/accounts/{id}/portfolio` | DB-reconstructed `PortfolioState`: cash (from the fill ledger), equity, exposure by asset, peak/day-start/week-start equity. |
+| GET | `/api/v1/accounts/{id}/positions` | Positions for the account, newest first (`status` query param to filter). |
+| GET | `/api/v1/accounts/{id}/orders` | Order history, newest first (`limit`, capped at 1000). |
+| GET | `/api/v1/accounts/{id}/trades` | Fill history, newest first (`limit`, capped at 1000). |
+| POST | `/api/v1/accounts/{id}/paper/tick` | Runs one `PaperTradingSession.run_tick` decision cycle for `(account, market_id, timeframe)`. Requires `account.mode == "paper"` (`422` otherwise). Returns the `TickResult` — one of `OPENED` / `EXIT` / `CAPITAL_RECOVERED` / `HOLD` / `SKIPPED_RISK` / `SKIPPED_SIZE` / `NO_SIGNAL` / `INSUFFICIENT_DATA` — and always records a portfolio snapshot regardless of outcome. |
+
 ## Planned (documented now, implemented in later phases)
 
 | Method | Path | Phase | Notes |
 |---|---|---|---|
-| GET | `/account` | 4 | balances, mode |
-| GET | `/portfolio` | 4 | equity, exposure, P&L |
-| GET | `/positions` | 4 | open/closed positions |
-| GET | `/orders` | 4 | order history |
-| GET | `/trades` | 4 | fill history |
-| GET | `/performance` | 4 | Sharpe/Sortino/drawdown/etc. for a live/paper account |
-| GET | `/risk` | 4 | current risk-limit usage for a live/paper account |
-| GET | `/signals` | 4 | latest per-strategy signals, persisted |
-| GET | `/decisions` | 4 | AI decision log with explainability fields |
-| GET | `/traders` | 4 | followed traders |
-| GET | `/traders/{id}` | 4 | trader detail + metrics |
-| GET | `/copy-trading` | 4 | copy-trading status/exposure |
-| POST | `/copy-trading/follow` | 4 | start following a trader |
-| DELETE | `/copy-trading/follow/{id}` | 4 | stop following |
+| GET | `/performance` | 5 | Sharpe/Sortino/drawdown/etc. for a live/paper account |
+| GET | `/risk` | 5 | current risk-limit usage for a live/paper account |
+| GET | `/signals` | 5 | latest per-strategy signals, persisted |
+| GET | `/decisions` | 5 | AI decision log with explainability fields |
+| GET | `/traders` | 5 | followed traders |
+| GET | `/traders/{id}` | 5 | trader detail + metrics |
+| GET | `/copy-trading` | 5 | copy-trading status/exposure |
+| POST | `/copy-trading/follow` | 5 | start following a trader |
+| DELETE | `/copy-trading/follow/{id}` | 5 | stop following |
 
 Every planned endpoint returns data already modeled in
 `docs/DATABASE_SCHEMA.md`, so no schema rework is expected when they're
-implemented.
+implemented. The copy-trading *decision* engines (trader metrics, copy
+candidate evaluation, consensus resolution) are already built —
+`docs/COPY_TRADING.md` — but have no HTTP surface yet since there's no
+live trader-data feed to drive them from.

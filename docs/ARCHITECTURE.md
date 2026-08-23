@@ -198,8 +198,27 @@ Phases follow the brief's Section 59 exactly:
   (docs/BACKTESTING.md) — no-look-ahead walk-forward simulator over
   stored candles tying all of the above together, with explicit fee/
   slippage modeling; `POST /backtests`, `GET /backtests/{id}`.
-- **Phase 4**: paper trading, order simulation, copy-trading simulation,
-  profit/capital-recovery manager.
+- **Phase 4 (done)**: `OrderManager` (docs/PAPER_TRADING.md) — idempotent
+  order submission keyed on `client_order_id`, reconciliation via
+  `get_order_status` before any retry, `OrderReconciliationRequiredError`
+  raised rather than ever silently resubmitting; `PositionManager` —
+  fills-to-positions bridge with weighted-average adds and persisted
+  exit-engine state (stop/take-profit/trailing-stop/highest-price/
+  max-hold, added to the `positions` table via migration
+  `060db36f1e44`) so it survives between ticks; `ProfitManager`
+  (docs/PAPER_TRADING.md) — capital-recovery partial exits that never
+  liquidate a whole position or leave a dust remainder, transitioning
+  the remainder to a trailing-stop-managed `PROFIT_RUNNER`; trader
+  performance tracking + copy-trade decision engines
+  (docs/COPY_TRADING.md) — dimensionless cross-trader-comparable metrics,
+  price-deviation chase guard, weighted multi-trader consensus; a
+  DB-backed `PortfolioState` builder reconstructing cash from the
+  immutable fill ledger rather than a mutable balance column; the
+  `PaperTradingSession` orchestrator tying market data, TA, strategy,
+  sizing, risk, exits, and capital recovery into one per-tick decision
+  cycle; `GET /accounts/{id}`, `GET /accounts/{id}/portfolio`,
+  `GET /accounts/{id}/positions`, `GET /accounts/{id}/orders`,
+  `GET /accounts/{id}/trades`, `POST /accounts/{id}/paper/tick`.
 - **Phase 5**: dashboard (Next.js), notifications (Telegram), monitoring
   (Prometheus/Grafana).
 - **Phase 6**: live exchange adapter, live order management, security

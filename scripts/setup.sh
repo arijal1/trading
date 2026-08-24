@@ -112,14 +112,50 @@ ok "architecture: $ARCH"
 
 # LAN IP, needed because the dashboard's API URL is baked in at build time
 # and "localhost" would mean the browsing machine, not this one.
+#
+# `hostname -I` and `ip route` are both Linux-only — macOS has neither, so
+# detection silently produced nothing there and every Mac fell back to
+# "localhost" with no way to find out what its address actually was.
 LAN_IP=""
-if command -v hostname >/dev/null 2>&1; then
-  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-fi
+case "$(uname -s)" in
+  Darwin)
+    # Ask the routing table which interface reaches the internet, rather
+    # than guessing en0 — that is Wi-Fi on a laptop but not on every Mac,
+    # and a machine on Ethernet or a VPN answers differently.
+    iface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')"
+    [ -n "${iface:-}" ] && LAN_IP="$(ipconfig getifaddr "$iface" 2>/dev/null)"
+    for fallback in en0 en1; do
+      [ -n "$LAN_IP" ] && break
+      LAN_IP="$(ipconfig getifaddr "$fallback" 2>/dev/null)"
+    done
+    ;;
+  *)
+    if command -v hostname >/dev/null 2>&1; then
+      LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    fi
+    ;;
+esac
 [ -z "$LAN_IP" ] && command -v ip >/dev/null 2>&1 &&
   LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')"
 
-if [ -n "$LAN_IP" ]; then
+DETECTED_LAN_IP="$LAN_IP"
+if [ "$(uname -s)" = "Darwin" ]; then
+  # A laptop moves between networks and its LAN IP changes with DHCP.
+  # Since the dashboard's API URL is baked in at build time, adopting that
+  # address would mean the app breaking every time you join a different
+  # Wi-Fi until you rebuild. localhost never changes, so it is the right
+  # default here — the LAN IP is reported, not silently adopted.
+  LAN_IP="localhost"
+  if [ -n "$DETECTED_LAN_IP" ]; then
+    ok "this machine's LAN IP is $DETECTED_LAN_IP"
+    inf "using localhost for the dashboard (stable across network changes)"
+    inf "To reach it from your phone or another computer instead:"
+    inf "    PUBLIC_HOST=$DETECTED_LAN_IP bash scripts/setup.sh"
+    inf "    bash scripts/local.sh start          # rebuild bakes in the new URL"
+  else
+    ok "using localhost"
+  fi
+elif [ -n "$LAN_IP" ]; then
   ok "LAN IP: $LAN_IP"
 else
   LAN_IP="localhost"
@@ -190,8 +226,23 @@ fi
 
 # The dashboard is a different origin from the API, so the API has to
 # allow the exact origin the browser will use.
-ORIGIN="http://${LAN_IP}:${WEB_PORT}"
-ORIGINS="$ORIGIN,http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT}"
+# Build the allowlist from the distinct hosts that could legitimately
+# appear in the address bar, de-duplicated: when PUBLIC_HOST is already
+# localhost the naive list repeats it, and a duplicated origin in a
+# security allowlist reads like a mistake even though it is harmless.
+#
+# The detected LAN address is pre-allowed even when localhost is the
+# chosen default, so switching later is a web rebuild and not also an API
+# config change.
+ORIGINS=""
+for host in "$LAN_IP" localhost 127.0.0.1 "${DETECTED_LAN_IP:-}"; do
+  [ -z "$host" ] && continue
+  candidate="http://${host}:${WEB_PORT}"
+  case ",$ORIGINS," in
+    *",$candidate,"*) continue ;;
+  esac
+  ORIGINS="${ORIGINS:+$ORIGINS,}$candidate"
+done
 if grep -q '^CORS_ALLOWED_ORIGINS=' .env 2>/dev/null; then
   tmp="$(mktemp)"
   sed "s|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=$ORIGINS|" .env > "$tmp" && mv "$tmp" .env

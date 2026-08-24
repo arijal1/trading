@@ -345,3 +345,34 @@ as **different origins** and returns 403 on JS chunks for the mismatched
 one, which silently prevents hydration — the page sits on "Loading…" with
 no console error explaining why. Use `localhost` consistently. This
 affects the dev server only, not the Docker/production build.
+
+---
+
+## Running it on your own machine
+
+One command, everything in Docker, nothing installed outside it and
+nothing starting at boot:
+
+```bash
+bash scripts/local.sh start     # first run builds; ~5-10 min
+bash scripts/local.sh stop      # stop, keep the data
+bash scripts/local.sh status    # health + the URL
+bash scripts/local.sh logs api  # follow a service
+bash scripts/local.sh reset     # wipe the database, start fresh
+```
+
+`start` picks free ports, creates `.env`, waits for the API **and** for
+the database, seeds demo data only into an empty database, and prints the
+URL. Re-running it is safe: existing trading history is kept.
+
+The two waits are separate on purpose. `/api/v1/health` is liveness only —
+it deliberately does not touch the database, so that a database outage is
+not reported as a dead process. Waiting on it alone printed "Ready" while
+Postgres was still refusing connections and handed over a dashboard whose
+every panel then errored, so readiness is gated on
+`/api/v1/system/status` reporting `database_connected: true` instead.
+
+This is the laptop counterpart to `setup.sh` + `up.sh`, which exist for
+always-on hosts where the LAN IP, port collisions, and the build-time API
+URL all matter. On a machine where you run the browser yourself,
+`localhost` is simply correct.

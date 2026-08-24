@@ -90,6 +90,13 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
+    # Opt-in. Prometheus scrapes /metrics for dashboards; nothing in the
+    # trading path depends on it, and the API serves /metrics with or
+    # without it running. Keeping it out of the default set means one
+    # fewer image to pull on a slow link, and less constant disk writing
+    # on hosts (a Pi) where that matters. Start it explicitly with:
+    #   bash scripts/up.sh --profile monitoring up -d
+    profiles: ["monitoring"]
     restart: unless-stopped
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro

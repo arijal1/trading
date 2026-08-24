@@ -6,6 +6,21 @@ outside `/api/v1`: Prometheus scrape configs assume a fixed, unversioned
 path, and versioning it would just mean every scrape config has to be
 updated in lockstep with the API version for no benefit.
 
+## Running Prometheus
+
+The API always serves `/metrics`, whether or not Prometheus is running.
+The Prometheus *server* is opt-in, because nothing in the trading path
+depends on it and it is one more image to pull and one more continuous
+writer on disk:
+
+```bash
+bash scripts/up.sh --profile monitoring up -d
+```
+
+Then browse to `http://localhost:9090`. Without that flag the rest of the
+stack starts normally and `/metrics` still works — you just have nothing
+storing the history.
+
 ## What's exposed
 
 | Metric | Type | Labels | What it means |

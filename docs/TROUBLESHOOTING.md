@@ -74,9 +74,26 @@ bash scripts/pull.sh
 ```
 
 Pulls one image at a time with retries. Docker keeps completed layers, so
-each attempt resumes rather than restarting. If it still fails the script
-prints the network-level fixes — ethernet over wifi, forcing IPv4 DNS in
-`/etc/docker/daemon.json`, and Docker Hub's anonymous pull limit.
+each attempt resumes rather than restarting.
+
+If it still fails, read *which* error repeats — they need different fixes:
+
+| Error | Cause | Fix |
+|---|---|---|
+| `lookup registry-1.docker.io on 192.168.x.1:53: i/o timeout` | your router's DNS is too slow/flaky for the daemon | `sudo bash scripts/fix-docker-dns.sh` |
+| `dial tcp [2600:...]:443: network is unreachable` | a AAAA record on a network that can't route IPv6 | same script (public IPv4 resolvers) |
+| `TLS handshake timeout` | too many parallel connections | `scripts/pull.sh` already fixes this |
+| `read: connection timed out` mid-download | genuinely slow link | retry; ethernet beats wifi |
+
+`fix-docker-dns.sh` writes `/etc/docker/daemon.json` via a real JSON
+parser (preserving any existing settings), validates it, and **restores
+the previous state automatically if docker fails to come back**. Do not
+hand-edit that file — a stray character stops the daemon and every
+container with it.
+
+Prometheus is opt-in and not pulled by default, so a failure on
+`prom/prometheus` never blocks the stack. Start it later with
+`bash scripts/up.sh --profile monitoring up -d`.
 
 ### 2c. Docker won't start after editing `/etc/docker/daemon.json`
 

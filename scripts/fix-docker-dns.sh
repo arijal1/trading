@@ -20,14 +20,19 @@
 #   already caused exactly that once.
 #
 # So this script:
-#   - backs up any existing file first,
+#   - refuses to touch a malformed existing file,
 #   - merges via a real JSON parser, never string concatenation, so other
 #     settings survive,
-#   - validates the result before restarting anything,
-#   - and if docker does not come back, RESTORES the previous state
-#     automatically and tells you.
+#   - does NOTHING AT ALL if the setting is already in place (see below),
+#   - backs up, validates, and if docker does not come back, RESTORES the
+#     previous state automatically and tells you.
 #
 # The worst case is therefore "no change", never "docker is broken".
+#
+# On the no-op path: restarting dockerd stops every container on the
+# machine. Re-running this script after it has already succeeded must
+# therefore cost nothing — an unrelated production container should not
+# take an outage because someone ran a fix script twice.
 
 set -uo pipefail
 
@@ -49,8 +54,6 @@ echo "=== Current state ==="
 if [ -f "$CONF" ]; then
   echo "$CONF exists:"
   cat "$CONF"
-  cp -a "$CONF" "$BACKUP"
-  echo "Backed up to $BACKUP"
   HAD_FILE=1
 else
   echo "$CONF does not exist (this is normal)."
@@ -58,16 +61,18 @@ else
 fi
 
 echo
-echo "=== Writing DNS setting ==="
+echo "=== Applying DNS setting ==="
 mkdir -p /etc/docker
 
-# Merge with a real parser so any existing keys are preserved. A malformed
-# existing file is a hard stop: silently replacing someone's config would
-# be worse than refusing.
-python3 - "$CONF" "$DNS_JSON" <<'PY'
-import json, os, sys
+# Exit codes from the helper below:
+#   0 = file changed, caller must validate and restart
+#   3 = already correct, caller must NOT restart
+#   2 = existing file malformed, caller must not touch anything
+python3 - "$CONF" "$DNS_JSON" "$BACKUP" <<'PY'
+import json, os, shutil, sys
 
-path, dns_json = sys.argv[1], sys.argv[2]
+path, dns_json, backup = sys.argv[1], sys.argv[2], sys.argv[3]
+
 config = {}
 if os.path.exists(path):
     with open(path) as fh:
@@ -81,15 +86,57 @@ if os.path.exists(path):
             print(f"  sudo rm {path}", file=sys.stderr)
             sys.exit(2)
 
-config["dns"] = json.loads(dns_json)
+wanted = json.loads(dns_json)
+
+# Already correct: change nothing, so the caller can skip the restart.
+if config.get("dns") == wanted:
+    print("Already set to:")
+    print(json.dumps(config, indent=2))
+    sys.exit(3)
+
+# Only now is a backup worth making — one per real change, rather than one
+# per invocation piling up in /etc/docker.
+if os.path.exists(path):
+    shutil.copy2(path, backup)
+    print(f"Backed up to {backup}")
+
+config["dns"] = wanted
 with open(path, "w") as fh:
     json.dump(config, fh, indent=2)
     fh.write("\n")
 print("Wrote:")
 print(json.dumps(config, indent=2))
 PY
+rc=$?
 
-if [ $? -ne 0 ]; then
+if [ "$rc" = "3" ]; then
+  echo
+  echo "No change needed - NOT restarting docker."
+  echo "(A restart stops every container on this machine, so re-running"
+  echo " this script costs you nothing.)"
+  if docker info >/dev/null 2>&1; then
+    echo
+    docker ps --format 'table {{.Names}}\t{{.Status}}'
+    echo
+    echo "Docker is running. Next:  bash scripts/pull.sh"
+    exit 0
+  fi
+  echo
+  echo "Docker is not running, though. Starting it..." >&2
+  systemctl reset-failed docker.service 2>/dev/null
+  systemctl start docker
+  sleep 5
+  if docker info >/dev/null 2>&1; then
+    echo "Docker is running now. Next:  bash scripts/pull.sh"
+    exit 0
+  fi
+  echo "Docker still will not start, and the DNS config is not the cause" >&2
+  echo "(it was already correct and was not modified). Real error:" >&2
+  echo "  sudo journalctl -u docker --no-pager -n 100 | grep -vE '^░░' | tail -20" >&2
+  exit 1
+fi
+
+if [ "$rc" -ne 0 ]; then
   echo "Aborted without changing anything." >&2
   exit 1
 fi

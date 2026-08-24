@@ -91,6 +91,12 @@ the previous state automatically if docker fails to come back**. Do not
 hand-edit that file — a stray character stops the daemon and every
 container with it.
 
+It is safe to run twice: if the setting is already present it changes
+nothing and **does not restart docker**. That matters because restarting
+the daemon stops every container on the machine, including ones unrelated
+to this project — a re-run of a fix script should not cost an unrelated
+service an outage.
+
 Prometheus is opt-in and not pulled by default, so a failure on
 `prom/prometheus` never blocks the stack. Start it later with
 `bash scripts/up.sh --profile monitoring up -d`.

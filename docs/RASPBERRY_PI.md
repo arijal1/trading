@@ -11,7 +11,7 @@ checking every dependency rather than assuming:
 
 | Component | arm64 available |
 |---|---|
-| `timescale/timescaledb:latest-pg16` | yes |
+| `postgres:16-alpine` | yes |
 | `redis:7-alpine`, `prom/prometheus` | yes |
 | `python:3.11-slim`, `node:22-slim` | yes |
 | numpy, pandas, psycopg2-binary, cryptography, argon2-cffi-bindings | yes (prebuilt aarch64 wheels) |
@@ -59,6 +59,11 @@ docker compose -f infrastructure/docker-compose.yml \
 
 Then browse to `http://<pi-ip>:3000` from any machine on your network.
 Find the IP with `hostname -I`.
+
+If image pulls fail with `TLS handshake timeout` — common on a Pi over
+wifi — run `bash scripts/pull.sh`. It pulls one image at a time with
+retries, resuming rather than restarting, and prints the network fixes
+that actually help if it still cannot get through.
 
 **The first build takes 15–40 minutes.** Most of it is `npm ci` and the
 Next.js build. Subsequent builds are cached and much faster. It has not

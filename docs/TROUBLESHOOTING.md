@@ -59,6 +59,32 @@ Note: if you change `API_PORT`, also update `CORS_ALLOWED_ORIGINS` in
 `.env` and rebuild the web image — the dashboard's API URL is baked in at
 build time (see below).
 
+### 2b. Image pulls fail with "TLS handshake timeout"
+
+```
+failed to resolve reference "docker.io/...": net/http: TLS handshake timeout
+```
+
+A transport failure, not a missing image. `docker compose up` pulls
+several images in parallel, which on a slow or flaky link (a Pi on wifi
+especially) opens multiple TLS sessions at once and times out.
+
+```bash
+bash scripts/pull.sh
+```
+
+Pulls one image at a time with retries. Docker keeps completed layers, so
+each attempt resumes rather than restarting. If it still fails the script
+prints the network-level fixes — ethernet over wifi, forcing IPv4 DNS in
+`/etc/docker/daemon.json`, and Docker Hub's anonymous pull limit.
+
+Note the database image is `postgres:16-alpine`, not TimescaleDB. The
+Phase 1 design named TimescaleDB, but nothing ever used it — there is not
+one hypertable or `time_bucket` call in the code or migrations — so it was
+a large download for no benefit. Set `POSTGRES_IMAGE` to switch back if
+hypertables are ever adopted, but **not on an existing volume**: data
+written by the timescaledb image will not start under plain Postgres.
+
 ### 3. No `.env` file
 
 The api service declares `env_file: ../.env`. Without it compose refuses

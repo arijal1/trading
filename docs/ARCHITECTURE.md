@@ -9,7 +9,7 @@ concrete about what exists today vs. what is planned.
 
 - No existing code, dependencies, or CI. Nothing to preserve or migrate.
 - Target stack (per project requirements): Python/FastAPI backend, Postgres
-  (+TimescaleDB extension) for time-series and relational data, Redis for
+  for time-series and relational data, Redis for
   caching/queues, Next.js/TypeScript frontend (later phase), Docker Compose
   for local/dev infra, Prometheus/Grafana for observability, GitHub Actions
   for CI.
@@ -47,7 +47,7 @@ Every arrow above is a typed, logged, and persisted transition (see
 |---------------------|-------------------------------------------|-----|
 | API framework        | FastAPI + Pydantic v2                    | async, strict schema validation everywhere (needed to keep LLM output out of the execution path unchecked) |
 | ORM / migrations     | SQLAlchemy 2.0 (async) + Alembic          | production-grade, explicit migrations, no magic |
-| Primary DB           | PostgreSQL 16 + TimescaleDB extension     | relational integrity for orders/positions + efficient OHLCV time-series |
+| Primary DB           | PostgreSQL 16                             | relational integrity for orders/positions + OHLCV. TimescaleDB was named in the Phase 1 design but never adopted — no hypertables or `time_bucket` exist, so the image was dropped (see docs/TROUBLESHOOTING.md). Re-add via `POSTGRES_IMAGE` if hypertables are genuinely needed. |
 | Cache / queue broker | Redis 7                                   | rate-limit bookkeeping, caching, Celery broker |
 | Background jobs      | Celery (or arq later) workers             | market data polling, indicator computation, position monitoring loops |
 | Package/dep mgmt     | Poetry                                    | reproducible envs, dev/prod extras |

@@ -2,7 +2,18 @@ name: trading-platform
 
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    # Plain Postgres by default. The Phase 1 design named TimescaleDB for
+    # OHLCV time-series, but nothing ever adopted it: there is not one
+    # hypertable, time_bucket call, or timescale reference in the
+    # application code or any migration. It was therefore a large image
+    # pulled for no benefit — a real cost on a slow or metered link, and
+    # on small hosts where postgres:16-alpine is often already cached.
+    # Override to switch back if hypertables are genuinely adopted later:
+    #   POSTGRES_IMAGE=timescale/timescaledb:latest-pg16
+    # Do not switch an existing volume between the two: data written by
+    # the timescaledb image will not start under plain Postgres, because
+    # the extension it loads is absent. Use a fresh volume.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_USER: trading

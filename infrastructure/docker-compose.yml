@@ -64,8 +64,13 @@ services:
       dockerfile: infrastructure/Dockerfile.web
       args:
         # Baked in at build time: every dashboard fetch runs in the
-        # browser, so this must be the URL *your browser* uses.
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-8000}
+        # browser, so this must be the URL *your browser* uses — not the
+        # server's own address. On a headless host (a Raspberry Pi, a VPS)
+        # "localhost" would resolve to the machine doing the browsing, so
+        # set PUBLIC_HOST to the host's LAN IP or hostname:
+        #   PUBLIC_HOST=192.168.1.50 docker compose ... up --build -d
+        # Changing it requires a rebuild, not just a restart.
+        NEXT_PUBLIC_API_BASE_URL: http://${PUBLIC_HOST:-localhost}:${API_PORT:-8000}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"

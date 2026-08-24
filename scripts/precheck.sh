@@ -127,33 +127,72 @@ done
 
 # ------------------------------------------------------------------- ports
 hdr "Ports this project wants"
-port_busy() {
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-  elif command -v ss >/dev/null 2>&1; then
-    ss -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]"
-  elif command -v netstat >/dev/null 2>&1; then
-    netstat -an 2>/dev/null | grep -qE "[:.]$1[[:space:]].*LISTEN"
-  else
-    return 1
+# Returns "busy", "free", or "unknown" on stdout.
+#
+# "unknown" exists because an earlier version returned "not busy" when no
+# probing tool was available — so on a Raspberry Pi (which ships without
+# lsof) it cheerfully reported every port free while containers were
+# actively bound to them. Claiming free when we cannot tell is the worst
+# possible answer here, so it is now reported as its own state.
+port_state() {
+  local port="$1" checked=0
+
+  # Docker first: a published container port is the most likely collision
+  # on a box already running other stacks, and this works even when no
+  # socket tool is installed.
+  if docker info >/dev/null 2>&1; then
+    checked=1
+    if docker ps --format '{{.Ports}}' 2>/dev/null | grep -qE "(^|[^0-9])$port->"; then
+      echo busy; return
+    fi
   fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    checked=1
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && { echo busy; return; }
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    checked=1
+    ss -ltn 2>/dev/null | grep -qE "[:.]$port[[:space:]]" && { echo busy; return; }
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    checked=1
+    netstat -an 2>/dev/null | grep -qE "[:.]$port[[:space:]].*LISTEN" && { echo busy; return; }
+  fi
+
+  [ "$checked" = "1" ] && echo free || echo unknown
 }
+
 owner_of() {
-  command -v lsof >/dev/null 2>&1 || { echo "unknown"; return; }
-  lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $1}'
+  local port="$1" name
+  # Prefer the container name — far more useful than "docker-proxy".
+  if docker info >/dev/null 2>&1; then
+    name="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null \
+            | grep -E "(^|[^0-9])$port->" | awk '{print $1}' | head -1)"
+    [ -n "$name" ] && { echo "container '$name'"; return; }
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    name="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $1}')"
+    [ -n "$name" ] && { echo "$name"; return; }
+  fi
+  echo "something"
 }
 CONFLICT=0
 for entry in "5432:Postgres:POSTGRES_PORT" "6379:Redis:REDIS_PORT" \
              "8000:API:API_PORT" "3000:Dashboard:WEB_PORT" \
              "9090:Prometheus:PROMETHEUS_PORT"; do
   port="${entry%%:*}"; rest="${entry#*:}"; label="${rest%%:*}"; var="${rest##*:}"
-  if port_busy "$port"; then
-    no_ "$port ($label) is ALREADY IN USE by: $(owner_of "$port")"
-    inf_ "   Use another:  ${var}=$((port+1)) docker compose -f infrastructure/docker-compose.yml up -d"
-    CONFLICT=1
-  else
-    yes_ "$port ($label) is free"
-  fi
+  case "$(port_state "$port")" in
+    busy)
+      no_ "$port ($label) is ALREADY IN USE by $(owner_of "$port")"
+      inf_ "   Set ${var}=$((port+1)) when you start (see the summary below)."
+      CONFLICT=1
+      ;;
+    unknown)
+      inf_ "$port ($label): could not check (no lsof/ss/netstat and Docker unreachable)"
+      ;;
+    *) yes_ "$port ($label) is free" ;;
+  esac
 done
 
 # ----------------------------------------------------------------- verdict

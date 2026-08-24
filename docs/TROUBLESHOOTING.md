@@ -83,6 +83,24 @@ Symptom: the dashboard loads, but panels sit on "Loading…" forever. Open
 your browser's devtools Network tab — you'll see failed requests to
 whatever URL got baked in.
 
+### 4b. Running on a Pi/server you browse to from another machine
+
+The default bakes `http://localhost:8000` into the dashboard. If the
+browser is on a different machine from the stack, `localhost` is *the
+browser's* machine — so every request fails. Set `PUBLIC_HOST` to the
+host's LAN IP and add the matching origin to `CORS_ALLOWED_ORIGINS`:
+
+```bash
+# in .env
+CORS_ALLOWED_ORIGINS=http://192.168.1.50:3001
+
+PUBLIC_HOST=192.168.1.50 WEB_PORT=3001 \
+  docker compose -f infrastructure/docker-compose.yml up --build -d
+```
+
+`PUBLIC_HOST` is read at *build* time, so it needs `--build`, not just a
+restart.
+
 ### 5. The dashboard loads but every panel says "Loading…"
 
 Usually CORS. The dashboard is a different origin from the API, so the API

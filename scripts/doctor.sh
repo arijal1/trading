@@ -33,21 +33,37 @@ fail()  { printf '  %s✗%s %s\n' "$R" "$N" "$1"; FAILED=1; }
 fix()   { printf '      %s→ %s%s\n' "$Y" "$1" "$N"; }
 head_() { printf '\n%s%s%s\n' "$B" "$1" "$N"; }
 
+# Checks every available probe rather than only the first one that exists.
+# Raspberry Pi OS ships without lsof, and an earlier version treated "no
+# tool available" as "port is free" — which reported every port free while
+# containers were bound to them. Absence of evidence is now its own state.
 port_in_use() {
-  # Try each tool that might exist; silence is "not in use / can't tell".
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0
-  elif command -v ss >/dev/null 2>&1; then
-    ss -ltn 2>/dev/null | grep -qE "[:.]$1[[:space:]]" && return 0
-  elif command -v netstat >/dev/null 2>&1; then
-    netstat -an 2>/dev/null | grep -qE "[:.]$1[[:space:]].*LISTEN" && return 0
+  local port="$1"
+  if docker info >/dev/null 2>&1 &&
+     docker ps --format '{{.Ports}}' 2>/dev/null | grep -qE "(^|[^0-9])$port->"; then
+    return 0
   fi
+  command -v lsof >/dev/null 2>&1 &&
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  command -v ss >/dev/null 2>&1 &&
+    ss -ltn 2>/dev/null | grep -qE "[:.]$port[[:space:]]" && return 0
+  command -v netstat >/dev/null 2>&1 &&
+    netstat -an 2>/dev/null | grep -qE "[:.]$port[[:space:]].*LISTEN" && return 0
   return 1
 }
 
 port_owner() {
-  command -v lsof >/dev/null 2>&1 || { echo "unknown"; return; }
-  lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo "unknown"
+  local port="$1" name
+  if docker info >/dev/null 2>&1; then
+    name="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null \
+            | grep -E "(^|[^0-9])$port->" | awk '{print $1}' | head -1)"
+    [ -n "$name" ] && { echo "container '$name'"; return; }
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    name="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}')"
+    [ -n "$name" ] && { echo "$name"; return; }
+  fi
+  echo "unknown"
 }
 
 compose() { docker compose -f "$COMPOSE_FILE" "$@" 2>/dev/null; }

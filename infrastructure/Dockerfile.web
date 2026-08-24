@@ -23,6 +23,13 @@ ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ARG NODE_OPTIONS=""
 ENV NODE_OPTIONS=$NODE_OPTIONS
 
+# public/ is optional in Next.js and is empty in this repo, so a clone can
+# legitimately not have it — Git does not track empty directories. The
+# runtime stage below copies it unconditionally, which failed the whole
+# build with "/app/public: not found". Creating it here makes the build
+# independent of whether the checkout happens to carry the directory.
+RUN mkdir -p /app/public
+
 RUN npx next typegen && npm run build
 
 FROM node:22-slim AS runtime

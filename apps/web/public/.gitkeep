@@ -1,0 +1,13 @@
+Keeps this directory present in a fresh clone.
+
+Next.js serves everything here as a static asset at the site root. It is
+currently empty, and Git does not track empty directories — so a clone had
+no apps/web/public at all, and infrastructure/Dockerfile.web failed at
+`COPY --from=build /app/public /app/public` with "/app/public: not found".
+
+The Dockerfile also creates the directory itself, so the build no longer
+depends on this file. Both exist on purpose: this keeps the conventional
+Next.js layout visible to anyone reading the repo, and the mkdir keeps the
+build working whatever state the checkout is in.
+
+Delete this once there is a real asset here (a favicon, an image).

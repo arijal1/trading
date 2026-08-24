@@ -88,12 +88,33 @@ That file is **strict JSON** — no `#` comments, no trailing commas. One bad
 character stops the daemon entirely, which takes down *every* container on
 the machine, not just this project's.
 
-The file is optional, so the fastest recovery is to delete it:
+The file is optional, so the fastest recovery is to delete it — **and to
+clear systemd's lockout**, which is the step everyone misses:
 
 ```bash
-sudo rm /etc/docker/daemon.json
-sudo systemctl restart docker
+sudo rm -f /etc/docker/daemon.json
+sudo systemctl reset-failed docker.service
+sudo systemctl start docker
 ```
+
+`reset-failed` matters. After a few rapid failures systemd gives up:
+
+```
+docker.service: Start request repeated too quickly.
+```
+
+From then on it refuses to start the service *at all*, no matter what you
+fix. Without `reset-failed` the repair looks like it did nothing, which
+sends you hunting for a second, non-existent problem. Confirm the real
+error first — systemd's own messages bury dockerd's:
+
+```bash
+sudo journalctl -u docker --no-pager -n 300 | grep -vE "^░░" | tail -30
+```
+
+The `grep -v` strips systemd's decorative `░░` explanation blocks, which
+otherwise crowd out the one line that matters (dockerd's own `level=`
+output).
 
 To keep a setting, always validate before restarting:
 

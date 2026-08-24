@@ -72,7 +72,13 @@ actually help, in order:
      If docker will not start after any edit, just delete the file; it is
      entirely optional:
 
-        sudo rm /etc/docker/daemon.json && sudo systemctl restart docker
+        sudo rm -f /etc/docker/daemon.json
+        sudo systemctl reset-failed docker.service
+        sudo systemctl start docker
+
+     The reset-failed is required: after a few rapid failures systemd
+     reports "Start request repeated too quickly" and refuses to start
+     the service at all, so fixing the file alone appears to do nothing.
 
   3. Check you are not rate-limited. Anonymous Docker Hub pulls are
      capped; `docker login` raises the limit.

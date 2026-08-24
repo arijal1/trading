@@ -178,9 +178,17 @@ if [ "$IS_PI" = "1" ] || [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "armv7l" ] || [ 
   root_dev="$(findmnt -no SOURCE / 2>/dev/null || echo "")"
   case "$root_dev" in
     /dev/mmcblk*)
-      warn "running from an SD card — Postgres/Prometheus writes will wear it out over months"
-      fix "Use the Pi overlay to cut write volume:  -f infrastructure/docker-compose.pi.yml"
-      fix "Better: boot from a USB3 SSD."
+      # Only a finding if the write-reducing overlay is NOT already in
+      # use. Warning regardless told people to enable something they had
+      # already enabled, which trains them to ignore the whole section.
+      if printf '%s' "$COMPOSE_ARGS" | grep -q 'docker-compose.pi.yml'; then
+        ok "running from an SD card, but the Pi overlay is active (reduced write volume)"
+        fix "Longer term, booting from a USB3 SSD is still the real fix."
+      else
+        warn "running from an SD card — Postgres writes will wear it out over months"
+        fix "bash scripts/setup.sh   (enables the Pi overlay, which cuts write volume)"
+        fix "Better: boot from a USB3 SSD."
+      fi
       ;;
     "") : ;;
     *) ok "root filesystem is on $root_dev (not an SD card)" ;;

@@ -63,6 +63,59 @@ wait_for_daemon() {   # wait_for_daemon <seconds>
   return 1
 }
 
+# Show WHY the daemon could not be reached.
+#
+# Every check above runs `docker info >/dev/null 2>&1`, which is right for
+# a yes/no test and wrong for a failure report: the one line that explains
+# the problem gets discarded, leaving "Docker is not running" for a
+# machine where Docker Desktop is visibly running. The usual causes all
+# announce themselves clearly in that output — a docker context pointing
+# at a VM that no longer exists, a stale DOCKER_HOST exported by an old
+# shell profile, or Docker Desktop's "Allow the default Docker socket to
+# be used" being off so /var/run/docker.sock never appears.
+docker_diagnosis() {
+  hdr "What docker actually said"
+  docker info 2>&1 | grep -vE '^\s*$' | head -12 | sed 's/^/      /'
+
+  hdr "Where it is looking"
+  if [ -n "${DOCKER_HOST:-}" ]; then
+    printf '      DOCKER_HOST=%s\n' "$DOCKER_HOST"
+    inf "DOCKER_HOST is set. If you did not set it deliberately, it is"
+    inf "probably a leftover in ~/.zshrc from an old Docker setup and is"
+    inf "pointing the CLI somewhere that no longer exists:"
+    inf "    unset DOCKER_HOST && bash scripts/local.sh start"
+  else
+    printf '      DOCKER_HOST is not set (normal)\n'
+  fi
+
+  if docker context ls >/dev/null 2>&1; then
+    printf '\n'
+    docker context ls 2>/dev/null | sed 's/^/      /'
+    inf "The context with a * is the one in use. On macOS with Docker"
+    inf "Desktop it should be 'desktop-linux'. To switch back:"
+    inf "    docker context use desktop-linux"
+  fi
+
+  if [ "$(uname -s)" = "Darwin" ]; then
+    # Only meaningful when the active context is 'default', which is the
+    # context that actually uses /var/run/docker.sock. Docker Desktop's
+    # own context points at ~/.docker/run/docker.sock, so reporting the
+    # default socket as "missing" there names a file nothing was looking
+    # for and sends people to a setting that is not their problem.
+    active="$(docker context ls 2>/dev/null | awk '/\*/ {print $1}' | head -1)"
+    if [ "${active%\*}" = "default" ] && [ ! -S /var/run/docker.sock ]; then
+      printf '      /var/run/docker.sock is missing, and the active context needs it\n'
+      inf "Docker Desktop → Settings → Advanced → tick"
+      inf "'Allow the default Docker socket to be used', then Apply & Restart."
+    fi
+    inf ""
+    inf "Most common cause when Docker Desktop looks like it is running:"
+    inf "it is sitting on a licence acceptance or sign-in screen and has"
+    inf "never finished starting. Bring its window up and answer whatever"
+    inf "it is waiting on, then re-run."
+  fi
+}
+
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     err "Docker is not installed."
@@ -119,17 +172,19 @@ require_docker() {
         return 0
       fi
       err "Docker did not come up within 2 minutes."
-      inf "Open it from Applications and watch for errors, then re-run this."
+      docker_diagnosis
       exit 1
       ;;
     Linux)
       err "Docker is installed but the daemon is not running."
       inf "sudo systemctl start docker"
+      docker_diagnosis
       exit 1
       ;;
     *)
       err "Docker is installed but the daemon is not running."
       inf "Start Docker Desktop, then re-run."
+      docker_diagnosis
       exit 1
       ;;
   esac

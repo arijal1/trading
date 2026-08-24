@@ -24,6 +24,27 @@ no_()  { printf '  %s✗%s %s\n' "$R" "$N" "$1"; }
 inf_() { printf '  %s·%s %s\n' "$Y" "$N" "$1"; }
 hdr()  { printf '\n%s%s%s\n' "$B" "$1" "$N"; }
 
+# Is the Docker daemon reachable?
+#
+# The timeout matters: a half-started Docker Desktop can leave `docker
+# info` hanging instead of failing. But `timeout` is GNU coreutils and is
+# NOT present on macOS — there, `timeout 20 docker info` dies with
+# "command not found" and returns 127, which reads as "the daemon is
+# down" on a machine where Docker is running perfectly.
+#
+# So: use timeout where it exists, gtimeout if coreutils came from
+# Homebrew, and otherwise just ask docker directly. Losing the timeout is
+# a far smaller problem than never working on macOS at all.
+docker_daemon_ok() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20 docker info >/dev/null 2>&1
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 20 docker info >/dev/null 2>&1
+  else
+    docker info >/dev/null 2>&1
+  fi
+}
+
 printf '%s=== Machine inventory ===%s\n' "$B" "$N"
 
 # ------------------------------------------------------------------ machine
@@ -79,7 +100,7 @@ hdr "Docker"
 if command -v docker >/dev/null 2>&1; then
   yes_ "docker installed: $(docker --version 2>/dev/null)"
 
-  if timeout 20 docker info >/dev/null 2>&1; then
+  if docker_daemon_ok; then
     yes_ "docker daemon is RUNNING"
     inf_ "Containers running: $(docker ps -q 2>/dev/null | wc -l | tr -d ' ')"
     inf_ "Images stored:      $(docker images -q 2>/dev/null | wc -l | tr -d ' ')"
@@ -199,7 +220,7 @@ done
 hdr "Summary"
 if ! command -v docker >/dev/null 2>&1; then
   printf '  %sInstall Docker first%s — nothing else can run without it.\n\n' "$R" "$N"
-elif ! timeout 20 docker info >/dev/null 2>&1; then
+elif ! docker_daemon_ok; then
   printf '  %sDocker is installed but not running%s — start it, then re-run this.\n\n' "$R" "$N"
 elif [ "$CONFLICT" = "1" ]; then
   printf '  %sReady, but some ports are taken%s — use the overrides shown above.\n\n' "$Y" "$N"

@@ -62,6 +62,29 @@ fail()  { printf '  %s✗%s %s\n' "$R" "$N" "$1"; FAILED=1; }
 fix()   { printf '      %s→ %s%s\n' "$Y" "$1" "$N"; }
 head_() { printf '\n%s%s%s\n' "$B" "$1" "$N"; }
 
+# Is the Docker daemon reachable?
+#
+# The timeout matters: a half-started Docker Desktop can leave `docker
+# info` hanging instead of failing. But `timeout` is GNU coreutils and is
+# NOT present on macOS — there, `timeout 20 docker info` dies with
+# "command not found" and returns 127, which reads as "the daemon is
+# down" on a machine where Docker is running perfectly. That produced the
+# worst possible symptom: local.sh (which called docker directly) said
+# "Docker is running" and setup.sh said the opposite, one line apart.
+#
+# So: use timeout where it exists, gtimeout if coreutils came from
+# Homebrew, and otherwise just ask docker directly. Losing the timeout is
+# a far smaller problem than never working on macOS at all.
+docker_daemon_ok() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 20 docker info >/dev/null 2>&1
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 20 docker info >/dev/null 2>&1
+  else
+    docker info >/dev/null 2>&1
+  fi
+}
+
 # Checks every available probe rather than only the first one that exists.
 # Raspberry Pi OS ships without lsof, and an earlier version treated "no
 # tool available" as "port is free" — which reported every port free while
@@ -121,7 +144,7 @@ else
   exit 1
 fi
 
-if timeout 20 docker info >/dev/null 2>&1; then
+if docker_daemon_ok; then
   ok "docker daemon is running"
 else
   fail "docker is installed but the daemon is NOT running"

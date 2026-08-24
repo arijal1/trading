@@ -20,6 +20,13 @@ the API and dashboard actually answer — then prints the specific command
 to fix whatever it found. Pure bash, so it works even when nothing else
 does.
 
+It reads the ports and host `scripts/setup.sh` chose for this machine
+(`infrastructure/.env`), so on a host where 3000 was taken it checks 3001
+rather than reporting a working dashboard as unreachable. **The last
+section prints the exact URL to open** — which is the answer to most
+"it's not working" reports, because `localhost` always means the machine
+running the *browser*.
+
 ---
 
 ## "Can't connect to the server"

@@ -14,11 +14,40 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$REPO_ROOT/infrastructure/docker-compose.yml"
 
-API_PORT="${API_PORT:-8000}"
-WEB_PORT="${WEB_PORT:-3000}"
-POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-REDIS_PORT="${REDIS_PORT:-6379}"
-PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
+# Read what scripts/setup.sh actually chose for THIS machine.
+#
+# This previously defaulted to 8000/3000 and only ever looked at the base
+# compose file. On any machine where setup.sh had to move a port — a Pi
+# already running something on 3000 is the common case — the doctor then
+# probed the wrong port and the wrong compose project: it would report
+# "Web port 3000 is free" and "cannot reach the dashboard at
+# localhost:3000" while the dashboard was up and healthy on 3001. That is
+# worse than no diagnosis, because it sends you to fix a working service.
+#
+# An explicitly exported variable still wins, so `WEB_PORT=3005 bash
+# scripts/doctor.sh` remains usable for a one-off check.
+from_setup() {   # from_setup <KEY> -> value from infrastructure/.env, or empty
+  [ -f "$REPO_ROOT/infrastructure/.env" ] || return 0
+  sed -n "s/^$1=//p" "$REPO_ROOT/infrastructure/.env" | tail -1
+}
+
+SETUP_RAN=0
+[ -f "$REPO_ROOT/infrastructure/.env" ] && SETUP_RAN=1
+
+API_PORT="${API_PORT:-$(from_setup API_PORT)}";              API_PORT="${API_PORT:-8000}"
+WEB_PORT="${WEB_PORT:-$(from_setup WEB_PORT)}";              WEB_PORT="${WEB_PORT:-3000}"
+POSTGRES_PORT="${POSTGRES_PORT:-$(from_setup POSTGRES_PORT)}"; POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+REDIS_PORT="${REDIS_PORT:-$(from_setup REDIS_PORT)}";        REDIS_PORT="${REDIS_PORT:-6379}"
+PROMETHEUS_PORT="${PROMETHEUS_PORT:-$(from_setup PROMETHEUS_PORT)}"; PROMETHEUS_PORT="${PROMETHEUS_PORT:-9090}"
+PUBLIC_HOST="${PUBLIC_HOST:-$(from_setup PUBLIC_HOST)}";     PUBLIC_HOST="${PUBLIC_HOST:-localhost}"
+
+# The Pi overlay changes which services and limits apply, so `compose ps`
+# must be asked with the same -f arguments the stack was started with.
+COMPOSE_ARGS="-f $COMPOSE_FILE"
+if [ -f "$REPO_ROOT/.compose-args" ]; then
+  read -r saved < "$REPO_ROOT/.compose-args"
+  [ -n "${saved:-}" ] && COMPOSE_ARGS="$saved"
+fi
 
 FAILED=0
 if [ -t 1 ]; then
@@ -66,10 +95,19 @@ port_owner() {
   echo "unknown"
 }
 
-compose() { docker compose -f "$COMPOSE_FILE" "$@" 2>/dev/null; }
+# shellcheck disable=SC2086
+compose() { (cd "$REPO_ROOT" && docker compose $COMPOSE_ARGS "$@" 2>/dev/null); }
 
 printf '%sTrading platform — connection doctor%s\n' "$B" "$N"
 printf 'repo: %s\n' "$REPO_ROOT"
+if [ "$SETUP_RAN" = "1" ]; then
+  printf 'using settings from infrastructure/.env (written by scripts/setup.sh)\n'
+  printf 'ports: api=%s web=%s postgres=%s  public host: %s\n' \
+    "$API_PORT" "$WEB_PORT" "$POSTGRES_PORT" "$PUBLIC_HOST"
+else
+  printf '%sinfrastructure/.env not found — assuming default ports.%s\n' "$Y" "$N"
+  printf 'If you have not run it yet:  bash scripts/setup.sh\n'
+fi
 
 # ---------------------------------------------------------------- prerequisites
 head_ "1. Prerequisites"
@@ -187,13 +225,7 @@ check_port() {
     else
       local owner; owner="$(port_owner "$port")"
       fail "$label port $port is already in use by another process ($owner)"
-      case "$label" in
-        Postgres) fix "Stop it, or run with a different port:  POSTGRES_PORT=5433 docker compose -f infrastructure/docker-compose.yml up -d" ;;
-        Redis)    fix "Stop it, or:  REDIS_PORT=6380 docker compose -f infrastructure/docker-compose.yml up -d" ;;
-        API)      fix "Stop it, or:  API_PORT=8001 docker compose -f infrastructure/docker-compose.yml up -d --build" ;;
-        Web)      fix "Stop it, or:  WEB_PORT=3001 docker compose -f infrastructure/docker-compose.yml up -d" ;;
-        *)        fix "Stop whatever owns port $port, then retry." ;;
-      esac
+      fix "Stop whatever owns it, or let setup pick a free port:  bash scripts/setup.sh"
     fi
   else
     ok "$label port $port is free"
@@ -211,13 +243,14 @@ head_ "4. Container state"
 
 if [ "$ours_up" = "0" ]; then
   fail "no containers are running for this project"
-  fix "docker compose -f infrastructure/docker-compose.yml up --build -d"
+  fix "bash scripts/up.sh"
+  fix "First run on a Pi builds the images and takes 15-40 minutes."
 else
-  for svc in postgres redis api web prometheus; do
+  for svc in postgres redis api web; do
     cid="$(compose ps -q "$svc")"
     if [ -z "$cid" ]; then
       fail "service '$svc' is not running"
-      fix "docker compose -f infrastructure/docker-compose.yml up -d $svc"
+      fix "bash scripts/up.sh up -d $svc"
       continue
     fi
     state="$(docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null)"
@@ -226,12 +259,21 @@ else
       ok "$svc: running"
     elif [ "$state" = "running" ]; then
       warn "$svc: running but has restarted ${restarts} times (crash loop?)"
-      fix "docker compose -f infrastructure/docker-compose.yml logs --tail=50 $svc"
+      fix "bash scripts/up.sh logs --tail=50 $svc"
     else
       fail "$svc: $state"
-      fix "docker compose -f infrastructure/docker-compose.yml logs --tail=50 $svc"
+      fix "bash scripts/up.sh logs --tail=50 $svc"
     fi
   done
+
+  # Prometheus is behind the "monitoring" compose profile, so it is
+  # absent by default and that is correct, not a fault. Reporting it as a
+  # failed service sent people chasing a container they never asked for.
+  if [ -n "$(compose ps -q prometheus)" ]; then
+    ok "prometheus: running (monitoring profile)"
+  else
+    ok "prometheus: not running (opt-in — bash scripts/up.sh --profile monitoring up -d)"
+  fi
 fi
 
 # ---------------------------------------------------------------------- reaching
@@ -243,16 +285,28 @@ else
   if curl -fsS --max-time 5 "http://localhost:$API_PORT/api/v1/health" >/dev/null 2>&1; then
     ok "API healthy at http://localhost:$API_PORT"
 
-    accounts="$(curl -fsS --max-time 5 "http://localhost:$API_PORT/api/v1/accounts" 2>/dev/null)"
-    if [ "$accounts" = "[]" ]; then
-      warn "API works but there are no accounts — the dashboard will look empty"
-      fix "docker compose -f infrastructure/docker-compose.yml exec api python -m app.cli seed-demo"
-    elif [ -n "$accounts" ]; then
-      ok "seed data present (at least one account)"
-    fi
+    # /accounts requires a token when AUTH_REQUIRED=true, so a 401 here
+    # is a correct, healthy answer — not a fault. Ask the public config
+    # endpoint what posture we are in before interpreting anything.
+    auth_cfg="$(curl -fsS --max-time 5 "http://localhost:$API_PORT/api/v1/auth/config" 2>/dev/null)"
+    case "$auth_cfg" in
+      *'"auth_required":true'*)
+        ok "authentication is ON — the dashboard will ask you to sign in"
+        fix "No account yet?  bash scripts/up.sh exec api python -m app.cli create-admin you@example.com"
+        ;;
+      *)
+        accounts="$(curl -fsS --max-time 5 "http://localhost:$API_PORT/api/v1/accounts" 2>/dev/null)"
+        if [ "$accounts" = "[]" ]; then
+          warn "API works but there are no accounts — the dashboard will look empty"
+          fix "bash scripts/up.sh exec api python -m app.cli seed-demo"
+        elif [ -n "$accounts" ]; then
+          ok "seed data present (at least one account)"
+        fi
+        ;;
+    esac
   else
     fail "cannot reach the API at http://localhost:$API_PORT/api/v1/health"
-    fix "docker compose -f infrastructure/docker-compose.yml logs --tail=50 api"
+    fix "bash scripts/up.sh logs --tail=50 api"
     fix "A DB connection error here usually means migrations failed to run."
   fi
 
@@ -260,18 +314,65 @@ else
     ok "dashboard responding at http://localhost:$WEB_PORT"
   else
     fail "cannot reach the dashboard at http://localhost:$WEB_PORT"
-    fix "docker compose -f infrastructure/docker-compose.yml logs --tail=50 web"
+    fix "bash scripts/up.sh logs --tail=50 web"
+    fix "If the web image is still building, this is expected — wait for it."
+  fi
+fi
+
+# ------------------------------------------------------------- the right URL
+# The single most common "it isn't working": browsing to localhost:PORT
+# from a laptop while the stack runs on a Pi. "localhost" is always the
+# machine running the *browser*, so it can never reach another host, and
+# the failure looks identical to the server being down.
+head_ "6. The URL to open"
+
+if [ "$PUBLIC_HOST" = "localhost" ] || [ "$PUBLIC_HOST" = "127.0.0.1" ]; then
+  printf '  On THIS machine:  %shttp://localhost:%s%s\n' "$B" "$WEB_PORT" "$N"
+  warn "PUBLIC_HOST is 'localhost', so the dashboard only works in a browser on this machine"
+  fix "Browsing from another computer or a phone? Re-run: bash scripts/setup.sh"
+  fix "then rebuild:  bash scripts/up.sh up --build -d web"
+else
+  printf '  From any machine on your network:  %shttp://%s:%s%s\n' "$B" "$PUBLIC_HOST" "$WEB_PORT" "$N"
+  printf '  On this machine only:              http://localhost:%s\n' "$WEB_PORT"
+  warn "http://localhost:$WEB_PORT will NOT work from another computer — 'localhost' means whichever machine the browser is on"
+fi
+
+# The dashboard is a different origin from the API, so the API must allow
+# the exact origin the browser will use. A mismatch is a silent "every
+# panel stuck on Loading…" with nothing in the API log.
+#
+# Asked of the running API with a real CORS preflight rather than read out
+# of .env: the file is only one of the inputs (there is a default in
+# app/core/config.py, and the container may predate an edit), so a file
+# check produces both false alarms and false all-clears. The preflight is
+# the same question the browser will ask.
+if command -v curl >/dev/null 2>&1 &&
+   curl -fsS --max-time 5 "http://localhost:$API_PORT/api/v1/health" >/dev/null 2>&1; then
+  want="http://${PUBLIC_HOST}:${WEB_PORT}"
+  # -i so the response headers are readable; the body is irrelevant here.
+  allowed="$(curl -sS -i --max-time 5 -X OPTIONS "http://localhost:$API_PORT/api/v1/accounts" \
+      -H "Origin: $want" \
+      -H "Access-Control-Request-Method: GET" \
+      -H "Access-Control-Request-Headers: authorization,content-type" 2>/dev/null \
+      | tr -d '\r' | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p')"
+
+  if [ -n "$allowed" ]; then
+    ok "the API accepts browser requests from $want"
+  else
+    fail "the API will reject browser requests from $want — panels will sit on 'Loading…'"
+    fix "Add it to CORS_ALLOWED_ORIGINS in .env, or just:  bash scripts/setup.sh"
+    fix "then restart the API:  bash scripts/up.sh up -d api"
   fi
 fi
 
 # ----------------------------------------------------------------------- verdict
 head_ "Verdict"
 if [ "$FAILED" = "0" ]; then
-  printf '  %sEverything checks out.%s Open http://localhost:%s\n\n' "$G" "$N" "$WEB_PORT"
+  printf '  %sEverything checks out.%s Open %shttp://%s:%s%s\n\n' \
+    "$G" "$N" "$B" "$PUBLIC_HOST" "$WEB_PORT" "$N"
   exit 0
 fi
 printf '  %sSomething is wrong — see the ✗ lines above.%s\n' "$R" "$N"
-printf '  Full logs:  docker compose -f infrastructure/docker-compose.yml logs\n'
-printf '  Start over: docker compose -f infrastructure/docker-compose.yml down -v && \\\n'
-printf '              docker compose -f infrastructure/docker-compose.yml up --build -d\n\n'
+printf '  Full logs:  bash scripts/up.sh logs\n'
+printf '  Start over: bash scripts/up.sh down -v && bash scripts/up.sh up --build -d\n\n'
 exit 1

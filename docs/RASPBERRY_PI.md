@@ -180,3 +180,34 @@ None of this is on a latency-critical path today, because the mock adapter
 is synthetic and nothing is trading real money. If a real exchange is
 integrated later, revisit — a Pi on home broadband is not where you want
 latency-sensitive execution running.
+
+## Removing it again
+
+```bash
+bash scripts/uninstall-pi.sh          # shows what would go, changes nothing
+bash scripts/uninstall-pi.sh --yes    # does it
+```
+
+Selects by Compose project label
+(`com.docker.compose.project=trading-platform`), which is stamped on the
+containers, volumes and networks this project created and on nothing
+else. Unrelated containers on the same host are invisible to it.
+
+**Do not use `docker system prune -a` for this.** Prune is machine-wide:
+on a host that also runs other containers it deletes their images and any
+volume not attached at that moment. It is the fastest way to destroy
+something you did not mean to touch.
+
+Two things the uninstaller deliberately keeps:
+
+- **Shared base images** (`postgres:16-alpine`, `redis:7-alpine`). Another
+  container on the machine is very likely using them — and if this is the
+  Pi that also runs a Postgres of its own, removing that image is exactly
+  the accident to avoid. Only images *built* for this project go.
+- **`/etc/docker/daemon.json`.** The DNS entry added by
+  `scripts/fix-docker-dns.sh` is not project-specific, probably helps
+  everything else on the box, and removing it costs another daemon
+  restart — which stops every container on the machine. The script prints
+  the commands if you want it gone anyway.
+
+Dry-run is the default; nothing is deleted without `--yes`.

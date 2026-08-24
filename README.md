@@ -59,20 +59,26 @@ docs/                architecture and design docs
 
 ## Quickstart
 
-Requires Docker + Docker Compose. From a clean clone:
+Requires Docker + Docker Compose. From a clean clone — three commands,
+each a single line so nothing breaks when pasted:
 
 ```bash
-cp .env.example .env
-docker compose -f infrastructure/docker-compose.yml up --build -d
-
-# One-time: create the demo exchange, markets, and a paper account.
-# (There is no onboarding endpoint yet — see docs/API_DESIGN.md.)
-docker compose -f infrastructure/docker-compose.yml exec api \
-  python -m app.cli seed-demo
+bash scripts/setup.sh
+bash scripts/up.sh
+bash scripts/up.sh exec api python -m app.cli seed-demo
 ```
 
-Then open **http://localhost:3000**. You should see the system-status
-panel and one "Demo Paper Account".
+`setup.sh` detects this machine's LAN IP, picks ports that are actually
+free (so it coexists with anything already running), enables the
+Raspberry Pi overlay if it sees a Pi, and writes the result to
+`infrastructure/.env`. It prints the URL to open when it finishes —
+`http://localhost:3000` on a normal desktop.
+
+`up.sh` is a thin wrapper that supplies the right `-f` flags, so any
+compose subcommand works: `bash scripts/up.sh logs -f api`,
+`bash scripts/up.sh down`.
+
+You should see the system-status panel and one "Demo Paper Account".
 
 Not sure what's already installed? `bash scripts/precheck.sh` reports your
 OS, architecture, Docker status, and port conflicts without changing

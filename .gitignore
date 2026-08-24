@@ -30,3 +30,6 @@ poetry.lock.bak
 
 # docker
 infrastructure/monitoring/data/
+
+# Machine-specific, written by scripts/setup.sh — never commit.
+.compose-args

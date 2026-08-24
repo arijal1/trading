@@ -78,6 +78,32 @@ each attempt resumes rather than restarting. If it still fails the script
 prints the network-level fixes — ethernet over wifi, forcing IPv4 DNS in
 `/etc/docker/daemon.json`, and Docker Hub's anonymous pull limit.
 
+### 2c. Docker won't start after editing `/etc/docker/daemon.json`
+
+```
+Job for docker.service failed because the control process exited with error code.
+```
+
+That file is **strict JSON** — no `#` comments, no trailing commas. One bad
+character stops the daemon entirely, which takes down *every* container on
+the machine, not just this project's.
+
+The file is optional, so the fastest recovery is to delete it:
+
+```bash
+sudo rm /etc/docker/daemon.json
+sudo systemctl restart docker
+```
+
+To keep a setting, always validate before restarting:
+
+```bash
+sudo python3 -m json.tool /etc/docker/daemon.json
+```
+
+If that prints your config, it's valid. If it raises an error, the daemon
+will refuse to start. Check with `sudo journalctl -xeu docker.service`.
+
 Note the database image is `postgres:16-alpine`, not TimescaleDB. The
 Phase 1 design named TimescaleDB, but nothing ever used it — there is not
 one hypertable or `time_bucket` call in the code or migrations — so it was

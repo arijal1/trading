@@ -54,11 +54,25 @@ actually help, in order:
   1. If you are on wifi, try ethernet. This is the most common fix on a Pi.
 
   2. Force IPv4 DNS. Docker on a Pi often hangs trying Docker Hub over
-     IPv6 when the network does not really route it:
+     IPv6 when the network does not really route it.
 
-        sudo nano /etc/docker/daemon.json
-        # add:  { "dns": ["1.1.1.1", "8.8.8.8"] }
-        sudo systemctl restart docker
+     /etc/docker/daemon.json is strict JSON: no comments, no trailing
+     commas. A malformed file stops the docker daemon from starting at
+     all, taking every container with it. So do NOT hand-edit it.
+
+     If the file does NOT already exist, create it in one command:
+
+        test -f /etc/docker/daemon.json && echo "EXISTS - merge by hand instead" || \
+          echo '{"dns":["1.1.1.1","8.8.8.8"]}' | sudo tee /etc/docker/daemon.json
+
+     Validate BEFORE restarting - this is what saves you:
+
+        sudo python3 -m json.tool /etc/docker/daemon.json && sudo systemctl restart docker
+
+     If docker will not start after any edit, just delete the file; it is
+     entirely optional:
+
+        sudo rm /etc/docker/daemon.json && sudo systemctl restart docker
 
   3. Check you are not rate-limited. Anonymous Docker Hub pulls are
      capped; `docker login` raises the limit.

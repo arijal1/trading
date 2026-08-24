@@ -40,30 +40,103 @@ dc() { # shellcheck disable=SC2046,SC2086
 web_port() { sed -n 's/^WEB_PORT=//p' infrastructure/.env 2>/dev/null | tail -1; }
 api_port() { sed -n 's/^API_PORT=//p' infrastructure/.env 2>/dev/null | tail -1; }
 
+# On macOS the `docker` CLI can exist with no engine behind it at all —
+# Homebrew installs the client on its own, and Docker Desktop, Colima,
+# OrbStack and Rancher Desktop are four different things that could be
+# providing (or failing to provide) the daemon. "Open Docker Desktop" is
+# useless advice to someone who does not have Docker Desktop, so find out
+# which one is actually installed before saying anything.
+mac_engine() {
+  [ -d "/Applications/Docker.app" ]  && { echo "desktop";  return; }
+  [ -d "/Applications/OrbStack.app" ] && { echo "orbstack"; return; }
+  [ -d "/Applications/Rancher Desktop.app" ] && { echo "rancher"; return; }
+  command -v colima >/dev/null 2>&1 && { echo "colima"; return; }
+  echo "none"
+}
+
+wait_for_daemon() {   # wait_for_daemon <seconds>
+  local limit="$1" i
+  for i in $(seq 1 "$limit"); do
+    docker info >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  return 1
+}
+
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     err "Docker is not installed."
     case "$(uname -s)" in
-      Darwin) inf "Install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/" ;;
+      Darwin) inf "Install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/"
+              inf "(Apple Silicon and Intel both work.)" ;;
       Linux)  inf "Install Docker: https://docs.docker.com/engine/install/" ;;
-      *)      inf "Install Docker Desktop: https://docs.docker.com/get-docker/" ;;
+      *)      inf "Install Docker: https://docs.docker.com/get-docker/" ;;
     esac
     exit 1
   fi
-  if ! timeout 20 docker info >/dev/null 2>&1; then
-    err "Docker is installed but not running."
-    case "$(uname -s)" in
-      Darwin) inf "Open the Docker Desktop app, wait for the whale icon to settle, then re-run." ;;
-      Linux)  inf "sudo systemctl start docker" ;;
-      *)      inf "Start Docker Desktop, then re-run." ;;
-    esac
-    exit 1
+
+  # Already running: the overwhelmingly common case, so say so and get on
+  # with it rather than probing for engines nobody needs.
+  if docker info >/dev/null 2>&1; then
+    ok "Docker is running"
+    return 0
   fi
+
+  local engine app
+  case "$(uname -s)" in
+    Darwin)
+      engine="$(mac_engine)"
+      case "$engine" in
+        none)
+          err "The docker command exists, but no Docker engine is installed."
+          inf "This happens when only the CLI was installed (e.g. 'brew install docker')."
+          inf "The CLI is just a client — it needs an engine to talk to."
+          inf ""
+          inf "Install Docker Desktop: https://docs.docker.com/desktop/install/mac-install/"
+          inf "Or a lighter alternative:  brew install colima && colima start"
+          exit 1
+          ;;
+        colima)
+          inf "Colima is installed but not running. Starting it..."
+          colima start || { err "colima failed to start"; exit 1; }
+          ;;
+        desktop|orbstack|rancher)
+          case "$engine" in
+            desktop)  app="Docker" ;;
+            orbstack) app="OrbStack" ;;
+            rancher)  app="Rancher Desktop" ;;
+          esac
+          inf "$app is installed but not running. Starting it..."
+          open -a "$app" 2>/dev/null || {
+            err "could not launch $app — open it from Applications, then re-run."
+            exit 1
+          }
+          inf "Waiting for it to finish starting (this takes 30-60s the first time)..."
+          ;;
+      esac
+      if wait_for_daemon 60; then
+        ok "Docker is running"
+        return 0
+      fi
+      err "Docker did not come up within 2 minutes."
+      inf "Open it from Applications and watch for errors, then re-run this."
+      exit 1
+      ;;
+    Linux)
+      err "Docker is installed but the daemon is not running."
+      inf "sudo systemctl start docker"
+      exit 1
+      ;;
+    *)
+      err "Docker is installed but the daemon is not running."
+      inf "Start Docker Desktop, then re-run."
+      exit 1
+      ;;
+  esac
 }
 
 cmd_start() {
   require_docker
-  ok "Docker is running"
 
   # setup.sh works out free ports and writes infrastructure/.env. On a
   # laptop it also correctly resolves the public host to "localhost",

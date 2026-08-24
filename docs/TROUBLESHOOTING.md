@@ -2,6 +2,15 @@
 
 ## Start here
 
+**Before installing anything** — see what's already on the machine
+(read-only, changes nothing, works without the repo cloned):
+
+```bash
+bash scripts/precheck.sh
+```
+
+**Once the repo is cloned and you've tried to start it:**
+
 ```bash
 bash scripts/doctor.sh
 ```

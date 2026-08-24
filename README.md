@@ -74,6 +74,10 @@ docker compose -f infrastructure/docker-compose.yml exec api \
 Then open **http://localhost:3000**. You should see the system-status
 panel and one "Demo Paper Account".
 
+Not sure what's already installed? `bash scripts/precheck.sh` reports your
+OS, architecture, Docker status, and port conflicts without changing
+anything.
+
 **If anything doesn't come up**, run the doctor — it checks Docker, ports,
 `.env`, container health, and reachability, then prints the exact command
 to fix what it finds:

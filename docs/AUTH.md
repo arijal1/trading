@@ -26,11 +26,23 @@ Live trading should never be enabled without also setting
 |---|---|
 | `admin` | Everything, including the kill switch, live-readiness, and user registration |
 | `user` | Read account data, run paper ticks |
-| unauthenticated | Only `/api/v1/health` and `/metrics` when auth is on |
+| unauthenticated | Only `/api/v1/health`, `/api/v1/auth/config`, `/api/v1/auth/login`, and `/metrics` when auth is on |
 
 `/health` and `/metrics` stay open by design: liveness must never require
 a credential, or an auth outage looks like a dead process to an
-orchestrator and triggers a pointless restart loop.
+orchestrator and triggers a pointless restart loop. `/auth/login` and
+`/auth/config` are open for the same structural reason — a client with no
+credential has to be able to ask whether it needs one, and then get one.
+
+**Reads are gated too, not just writes.** Through Phase 6 only
+state-changing routes carried `require_admin`; every read — portfolio
+equity, open positions, order history, system state — answered anyone who
+asked, even with `AUTH_REQUIRED=true`. That is acceptable on a trusted LAN
+and wrong for anything internet-reachable, since an attacker who cannot
+*touch* anything can still read the entire trading book. Authentication is
+now applied at the router (`app/api/v1/router.py`) so that a new endpoint
+is protected by default and has to be deliberately added to the public
+list to escape it — the safer direction for a mistake to run in.
 
 ## Endpoints
 
@@ -95,6 +107,55 @@ land in shell history and the process table).
   should front this with a reverse proxy that rate-limits `/auth/login`.
 - **No password reset flow**, no MFA, no session listing. All meaningful
   additions; none are built.
-- **The dashboard does not log in yet.** `apps/web` calls the API without
-  a token, so it works only while `AUTH_REQUIRED=false`. Wiring a login
-  screen is the natural next increment (`docs/DASHBOARD.md`).
+- **No token in the browser is perfectly safe.** The dashboard keeps its
+  bearer token in `localStorage` (`apps/web/lib/auth.ts`), which any
+  script on that origin can read. The alternative — an httpOnly cookie —
+  would need credentialed CORS and CSRF defence for a dashboard served
+  from a different origin than the API. The trade-off is stated in that
+  file rather than hidden; the mitigations are that the dashboard loads
+  no third-party scripts, tokens expire in an hour, and deactivating a
+  user revokes them instantly.
+
+## Signing in from the dashboard
+
+The dashboard asks `GET /auth/config` on load and renders accordingly:
+
+| `auth_required` | What you see |
+|---|---|
+| `false` | The dashboard, plus an amber **Unauthenticated mode** badge in the header — so an unguarded deployment is visible rather than silent |
+| `true`, no valid token | A sign-in screen; no account data is fetched or rendered |
+| `true`, valid token | The dashboard, with your email, role, and a sign-out button |
+
+Turning it on:
+
+```bash
+# 1. Generate secrets (also prints MASTER_ENCRYPTION_KEY)
+docker compose exec api python -m app.cli generate-keys   # copy into .env
+
+# 2. Create the first admin — deliberately not possible through the API
+docker compose exec api python -m app.cli create-admin you@example.com
+
+# 3. Set AUTH_REQUIRED=true in .env, then restart the api service
+```
+
+There is no self-registration: `POST /auth/register` is admin-only, so an
+internet-reachable deployment never has a window in which a stranger can
+create themselves an admin account. The first admin comes from the CLI,
+out-of-band.
+
+Two failure modes worth naming, because they look identical from the
+outside and are not:
+
+- **A 401 with a token** means the token is stale or the user was
+  deactivated. The dashboard discards it and returns to the sign-in
+  screen rather than retrying forever with a dead credential.
+- **The API not answering at all** shows a distinct "could not reach the
+  trading API" panel with a retry button. Collapsing this into the login
+  screen would send you hunting for a password problem when the backend
+  is simply down.
+
+**Serve it over TLS if it is reachable from outside your network.** A
+bearer token on plain HTTP is readable in transit no matter where the
+browser stores it. Terminate TLS at a reverse proxy in front of both
+services, and block `/metrics` there — it stays open for Prometheus and
+leaks operational detail otherwise.

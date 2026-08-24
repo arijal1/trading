@@ -3,8 +3,10 @@
 // live trading/risk state, where a stale read is actively misleading
 // (see docs/RISK_MANAGEMENT.md's "capital preservation first" framing).
 
+import { getToken, setToken } from "./auth";
 import type {
   Account,
+  AuthConfig,
   Market,
   Order,
   PaperTickResponse,
@@ -12,7 +14,9 @@ import type {
   Position,
   SystemState,
   SystemStatus,
+  TokenResponse,
   Trade,
+  User,
 } from "./types";
 
 export function apiBaseUrl(): string {
@@ -28,12 +32,29 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     cache: "no-store",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
   if (!response.ok) {
+    // A 401 on a request that *carried* a token means the token is no
+    // longer good — expired, or the user was deactivated server-side
+    // (deps.py re-checks is_active on every request, so revocation is
+    // immediate). Drop it so the app falls back to the login screen
+    // instead of retrying forever with a dead credential.
+    //
+    // Guarded on `token` because a 401 from /auth/login is a wrong
+    // password, not a stale session, and clearing there would be
+    // meaningless churn.
+    if (response.status === 401 && token) {
+      setToken(null);
+    }
     const body = await response.text();
     throw new ApiError(response.status, body || response.statusText);
   }
@@ -44,6 +65,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Public — answerable before any credential exists.
+  authConfig: () => request<AuthConfig>("/api/v1/auth/config"),
+  login: (email: string, password: string) =>
+    request<TokenResponse>("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  me: () => request<User>("/api/v1/auth/me"),
+
   systemStatus: () => request<SystemStatus>("/api/v1/system/status"),
   emergencyStop: (reason: string, actor: string) =>
     request<SystemState>("/api/v1/trading/emergency-stop", {

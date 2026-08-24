@@ -114,3 +114,22 @@ export interface TickResult {
 export interface PaperTickResponse {
   result: TickResult;
 }
+
+// --- auth (docs/AUTH.md) ---
+
+export interface AuthConfig {
+  auth_required: boolean;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in_minutes: number;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+}

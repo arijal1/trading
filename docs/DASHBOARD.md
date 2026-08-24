@@ -93,6 +93,50 @@ documented way to fetch data on mount), and silenced with a scoped
 `eslint-disable-next-line` plus a comment at each site — not disabled
 project-wide, and not worked around with a worse pattern.
 
+## Authentication
+
+The dashboard has no session of its own. It asks the API what posture it
+is in (`GET /auth/config`, public) and follows:
+
+- `auth_required: false` → render everything, plus an amber
+  **Unauthenticated mode** badge in the header. The badge exists so an
+  unguarded deployment is *visible*; a dashboard that looks identical
+  guarded and unguarded is how one ends up on the open internet by
+  accident.
+- `auth_required: true` with no valid token → render the sign-in screen
+  and fetch no account data at all.
+- `auth_required: true` with a valid token → render everything, with the
+  signed-in email, role, and a sign-out button.
+
+Pieces:
+
+| File | Role |
+|---|---|
+| `lib/auth.ts` | Token storage (`localStorage`) plus a subscribe hook so any component can react to the session ending |
+| `components/AuthProvider.tsx` | Resolves the posture once, exposes `login`/`logout`, holds the five-state machine |
+| `components/AuthGate.tsx` | Renders login screen / error panel / children |
+| `components/LoginForm.tsx` | Email + password |
+| `components/AuthBadge.tsx` | Header identity and sign-out |
+
+Three deliberate details:
+
+1. **"Could not reach the API" is a separate state from "not logged in."**
+   Conflating them shows a password prompt when the backend is down,
+   which is the single most misleading thing a login screen can do.
+2. **The client never decodes the JWT to learn its own role.** After
+   login it calls `/auth/me`; the server stays the authority on role and
+   active status. A dashboard that trusts its own reading of a token is
+   one step away from trusting a forged one.
+3. **A 401 anywhere clears the token**, which the provider observes and
+   turns into a single return to the sign-in screen — rather than every
+   panel failing separately with its own red box.
+
+The login form deliberately reports "Invalid email or password" for every
+failure. The API already answers unknown-email, wrong-password, and
+disabled-account identically to prevent user enumeration; showing
+anything more specific in the browser would give that property away from
+the client side.
+
 ## Scope (documented, not oversights)
 
 - **No test suite.** Unlike every backend phase, this app has no
@@ -100,11 +144,12 @@ project-wide, and not worked around with a worse pattern.
   typecheck, and a real browser pass) rather than `npm test`. Worth
   adding (Playwright or Vitest + Testing Library) once the dashboard's
   surface area grows past what a manual pass can cover confidently.
-- **No auth.** Matches the API's own Phase 1-5 posture (`docs/
-  API_DESIGN.md`: "Auth lands in Phase 5+") — anyone who can reach the
-  dashboard can reach every account and can trip the kill switch.
-  Acceptable for an internal/local tool talking to a paper-trading
-  backend; not acceptable to expose past a trusted network as-is.
+- **Auth is present but off by default.** The dashboard signs in when
+  the API requires it and shows an amber "Unauthenticated mode" badge
+  when it does not (see "Authentication" above and `docs/AUTH.md`). With
+  the default `AUTH_REQUIRED=false`, anyone who can reach the dashboard
+  can read every account and trip the kill switch — fine for a LAN tool
+  against a paper-trading backend, not fine past a trusted network.
 - **No `/signals`, `/decisions`, `/traders`, `/copy-trading` views.**
   Those API endpoints don't exist yet either (`docs/API_DESIGN.md`'s
   "Planned" table) — nothing to build a view against.

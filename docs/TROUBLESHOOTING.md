@@ -197,6 +197,37 @@ PUBLIC_HOST=192.168.1.50 WEB_PORT=3001 \
 `PUBLIC_HOST` is read at *build* time, so it needs `--build`, not just a
 restart.
 
+### 4c. The dashboard shows a sign-in screen and you have no account
+
+There is no sign-up form, on purpose (`docs/AUTH.md`). Create the first
+admin from the CLI:
+
+```bash
+docker compose -f infrastructure/docker-compose.yml exec api \
+  python -m app.cli create-admin you@example.com
+```
+
+If you set `AUTH_REQUIRED=true` before creating a user, this is exactly
+the state you land in — locked out of your own dashboard. The CLI talks
+to the database directly, so it still works.
+
+To go back to the LAN posture, set `AUTH_REQUIRED=false` and restart the
+api service. The dashboard follows automatically (it asks the API on
+every load) and shows an amber "Unauthenticated mode" badge instead.
+
+### 4d. Signing in fails with a CORS error rather than a 401
+
+The browser sends a preflight for any request carrying an `Authorization`
+header, and the API must list that header in its allowlist. It does — but
+if you are running an older build of the api image, rebuild it:
+
+```bash
+docker compose -f infrastructure/docker-compose.yml up --build -d api
+```
+
+Also confirm `CORS_ALLOWED_ORIGINS` in `.env` names the exact origin you
+browse from, port included.
+
 ### 5. The dashboard loads but every panel says "Loading…"
 
 Usually CORS. The dashboard is a different origin from the API, so the API

@@ -21,10 +21,29 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.db.models.audit import AuditLog
 from app.db.models.core import User
 from app.db.session import get_db
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.schemas.auth import (
+    AuthConfigResponse,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
+
+
+@router.get("/auth/config", response_model=AuthConfigResponse)
+async def auth_config() -> AuthConfigResponse:
+    """Public: tells a client whether it needs to log in before anything else.
+
+    Unauthenticated on purpose. The alternative — having the dashboard
+    probe a protected endpoint and infer the posture from a 401 — works
+    but conflates "auth is on" with "your token expired" and with "the
+    API is down", which produces a login screen at exactly the moments it
+    is least helpful.
+    """
+    return AuthConfigResponse(auth_required=get_settings().AUTH_REQUIRED)
 
 
 @router.post("/auth/login", response_model=TokenResponse)

@@ -29,3 +29,18 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+
+
+class AuthConfigResponse(BaseModel):
+    """What an unauthenticated client is allowed to know up front.
+
+    Only the posture flag — never the algorithm, expiry, secret, or user
+    list. The dashboard needs this to decide whether to render a login
+    screen or go straight to the data, and it must be answerable *before*
+    the client has any credential.
+
+    Exposing it leaks nothing an attacker could not already learn by
+    sending one unauthenticated request and observing 200 versus 401.
+    """
+
+    auth_required: bool

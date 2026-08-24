@@ -235,3 +235,77 @@ async def test_login_response_never_contains_the_password_hash(client, users, au
     body = response.text
     assert "argon2" not in body
     assert users["admin"].hashed_password not in body
+
+
+# --- read-path authorization -------------------------------------------
+#
+# Mutations were gated from the start; reads were not. With AUTH_REQUIRED
+# on, an unauthenticated caller could still retrieve portfolio equity,
+# open positions, order history and system state — which is most of what
+# this system has to protect. These tests pin the fix, and equally pin
+# that nothing changed for the default (auth-off) posture.
+
+READ_PATHS = [
+    "/api/v1/system/status",
+    "/api/v1/accounts",
+    "/api/v1/markets",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", READ_PATHS)
+async def test_reads_require_a_token_when_auth_is_on(client, users, auth_on, path):
+    response = await client.get(path)
+    assert response.status_code == 401, f"{path} leaked data to an anonymous caller"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", READ_PATHS)
+async def test_reads_succeed_with_a_valid_token(client, users, auth_on, path):
+    token = await _login(client, "user@example.com")
+    response = await client.get(path, headers=_bearer(token))
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", READ_PATHS)
+async def test_reads_stay_open_when_auth_is_disabled(client, auth_off, path):
+    """No regression for the documented LAN posture."""
+    response = await client.get(path)
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_reads_reject_a_garbage_token_rather_than_falling_back(
+    client, users, auth_on
+):
+    """A bad token must fail closed, not degrade to anonymous access."""
+    response = await client.get("/api/v1/accounts", headers=_bearer("not-a-real-token"))
+    assert response.status_code == 401
+
+
+# --- /auth/config -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_auth_config_is_readable_without_a_credential(client, auth_on):
+    """The dashboard has to ask this *before* it has a token; if it were
+    gated the login screen could never decide to render itself."""
+    response = await client.get("/api/v1/auth/config")
+    assert response.status_code == 200
+    assert response.json() == {"auth_required": True}
+
+
+@pytest.mark.asyncio
+async def test_auth_config_reports_the_disabled_posture(client, auth_off):
+    response = await client.get("/api/v1/auth/config")
+    assert response.status_code == 200
+    assert response.json() == {"auth_required": False}
+
+
+@pytest.mark.asyncio
+async def test_auth_config_exposes_nothing_but_the_flag(client, auth_on):
+    """Guards against someone later adding the algorithm, expiry, secret,
+    or a user list to this deliberately-public endpoint."""
+    body = await client.get("/api/v1/auth/config")
+    assert set(body.json().keys()) == {"auth_required"}

@@ -6,6 +6,7 @@
 #   bash scripts/local.sh status    # is it healthy? what's the URL?
 #   bash scripts/local.sh logs api  # follow a service's logs
 #   bash scripts/local.sh reset     # wipe the database and start fresh
+#   bash scripts/local.sh admin you@example.com   # create a login
 #
 # Everything runs in Docker and stops when you say so. Nothing is
 # installed outside Docker, nothing starts at boot, and closing your
@@ -303,6 +304,32 @@ cmd_reset() {
 
 cmd_status() { bash scripts/doctor.sh; }
 
+cmd_admin() {
+  require_docker
+  shift 2>/dev/null
+  email="${1:-}"
+  if [ -z "$email" ]; then
+    err "Which email? Usage:"
+    inf "bash scripts/local.sh admin you@example.com"
+    exit 1
+  fi
+
+  hdr "Creating an admin user"
+  inf "You will be prompted for a password. It is read invisibly — nothing"
+  inf "you type appears on screen, and it never enters your shell history."
+  inf "Minimum 12 characters."
+  printf '\n'
+
+  # A TTY is required: the CLI reads the password with getpass, which needs
+  # a terminal to turn echo off. Without one it either fails or, worse,
+  # echoes the password in clear text.
+  if [ ! -t 0 ]; then
+    err "This needs an interactive terminal — run it directly, not piped."
+    exit 1
+  fi
+  dc exec api python -m app.cli create-admin "$email"
+}
+
 cmd_logs() {
   require_docker
   shift 2>/dev/null
@@ -312,11 +339,13 @@ cmd_logs() {
 
 case "${1:-start}" in
   start)  cmd_start ;;
+  admin)  cmd_admin "$@" ;;
   stop)   cmd_stop ;;
   reset)  cmd_reset ;;
   status) cmd_status ;;
   logs)   cmd_logs "$@" ;;
   *)
     printf 'Usage: bash scripts/local.sh [start|stop|status|logs [service]|reset]\n'
+    printf '       bash scripts/local.sh admin you@example.com   # create a login\n'
     exit 1 ;;
 esac

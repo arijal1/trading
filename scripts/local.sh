@@ -7,6 +7,7 @@
 #   bash scripts/local.sh logs api  # follow a service's logs
 #   bash scripts/local.sh reset     # wipe the database and start fresh
 #   bash scripts/local.sh admin you@example.com   # create a login
+#   bash scripts/local.sh report    # one paste-able diagnostic dump
 #
 # Everything runs in Docker and stops when you say so. Nothing is
 # installed outside Docker, nothing starts at boot, and closing your
@@ -322,6 +323,92 @@ cmd_reset() {
 
 cmd_status() { bash scripts/doctor.sh; }
 
+# One command that captures everything needed to diagnose "it is not
+# working", so nobody has to run six commands across two machines and
+# paste them one at a time. Read-only, and secrets are redacted.
+cmd_report() {
+  printf '===== trading platform report =====\n'
+  printf 'date: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'host: %s (%s)\n' "$(uname -s)" "$(uname -m)"
+
+  printf '\n--- commit ---\n'
+  git -C "$REPO_ROOT" log --oneline -1 2>/dev/null || echo "(not a git checkout)"
+  git -C "$REPO_ROOT" diff --quiet 2>/dev/null && echo "working tree clean" || echo "working tree MODIFIED"
+
+  printf '\n--- infrastructure/.env (ports and host) ---\n'
+  if [ -f infrastructure/.env ]; then
+    grep -v '^#' infrastructure/.env | grep -v '^$'
+  else
+    echo "(missing — scripts/setup.sh has not run)"
+  fi
+
+  printf '\n--- .env (only what matters here; secrets redacted) ---\n'
+  if [ -f .env ]; then
+    # Two separate redactions, because they catch different things:
+    #
+    #  1. Keys that ARE credentials. Matched on the trailing word so
+    #     MAX_TOKEN_RISK_SCORE stays readable while ANTHROPIC_API_KEY and
+    #     TELEGRAM_BOT_TOKEN do not.
+    #  2. Credentials embedded in a URL. DATABASE_URL contains a password
+    #     and matches none of the keyword rules — it would have been
+    #     printed in full into a chat window.
+    #
+    # Only the settings that bear on "is it working" are shown: the file
+    # has ~50 risk parameters that are noise in a connectivity report.
+    grep -E '^(ENVIRONMENT|LOG_LEVEL|TRADING_MODE|LIVE_TRADING|AUTH_REQUIRED|CORS_ALLOWED_ORIGINS|DATABASE_URL|REDIS_URL)=' .env \
+      | sed -E 's/^([A-Z_]*(_KEY|_TOKEN|_SECRET|_PASSWORD|_DSN))=.+/\1=<redacted>/' \
+      | sed -E 's#://([^:/@]+):[^@/]+@#://\1:<redacted>@#g'
+  else
+    echo "(missing)"
+  fi
+
+  printf '\n--- containers ---\n'
+  docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1
+
+  WEB="$(web_port)"; WEB="${WEB:-3000}"
+  API="$(api_port)"; API="${API:-8000}"
+  PUB="$(sed -n 's/^PUBLIC_HOST=//p' infrastructure/.env 2>/dev/null | tail -1)"
+  PUB="${PUB:-localhost}"
+
+  printf '\n--- API on port %s ---\n' "$API"
+  printf 'health:   %s\n' "$(curl -s --max-time 5 "http://localhost:$API/api/v1/health" 2>&1 | head -c 200)"
+  printf 'status:   %s\n' "$(curl -s --max-time 5 "http://localhost:$API/api/v1/system/status" 2>&1 | head -c 300)"
+  printf 'auth:     %s\n' "$(curl -s --max-time 5 "http://localhost:$API/api/v1/auth/config" 2>&1 | head -c 100)"
+  printf 'accounts: %s\n' "$(curl -s --max-time 5 "http://localhost:$API/api/v1/accounts" 2>&1 | head -c 200)"
+  printf 'markets:  %s\n' "$(curl -s --max-time 5 "http://localhost:$API/api/v1/markets" 2>&1 | head -c 200)"
+
+  printf '\n--- dashboard on port %s ---\n' "$WEB"
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "http://localhost:$WEB" 2>&1)"
+  printf 'http://localhost:%s -> HTTP %s\n' "$WEB" "$code"
+  # The build id and API URL are inlined into the served HTML/JS, so
+  # grepping the response says which build is actually being served —
+  # the question a screenshot cannot answer.
+  page="$(curl -s --max-time 8 "http://localhost:$WEB" 2>/dev/null)"
+  # The footer renders the id inside a <code> element, so the literal
+  # "build <sha>" never appears as adjacent text — match the element
+  # instead. Getting this wrong made the report's single most useful line
+  # read "<not found>" on a perfectly healthy page.
+  stamp="$(printf '%s' "$page" \
+    | grep -oE '<code[^>]*>[0-9a-f]{7,40}(-dirty)?</code>' \
+    | sed -E 's#</?code[^>]*>##g' | head -1)"
+  printf 'served build: %s\n' "${stamp:-<not found - see note>}"
+  [ -z "$stamp" ] && printf '  (blank is normal in dev mode; a Docker build should show it)\n'
+  baked="$(printf '%s' "$page" | grep -oE 'http://[0-9a-zA-Z_.-]+:[0-9]+' | sort -u | tr '\n' ' ')"
+  printf 'urls in page: %s\n' "${baked:-<none>}"
+
+  printf '\n--- the URL you should open ---\n'
+  printf 'http://%s:%s\n' "$PUB" "$WEB"
+
+  printf '\n--- last 15 lines of each container ---\n'
+  for svc in api web; do
+    printf '\n[%s]\n' "$svc"
+    dc logs --tail=15 "$svc" 2>&1 | tail -15
+  done
+  printf '\n===== end of report =====\n'
+}
+
+
+
 cmd_admin() {
   require_docker
   shift 2>/dev/null
@@ -358,6 +445,7 @@ cmd_logs() {
 case "${1:-start}" in
   start)  cmd_start ;;
   admin)  cmd_admin "$@" ;;
+  report) cmd_report ;;
   stop)   cmd_stop ;;
   reset)  cmd_reset ;;
   status) cmd_status ;;
@@ -365,5 +453,6 @@ case "${1:-start}" in
   *)
     printf 'Usage: bash scripts/local.sh [start|stop|status|logs [service]|reset]\n'
     printf '       bash scripts/local.sh admin you@example.com   # create a login\n'
+    printf '       bash scripts/local.sh report                  # everything, for debugging\n'
     exit 1 ;;
 esac

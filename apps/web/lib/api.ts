@@ -7,12 +7,14 @@ import { getToken, setToken } from "./auth";
 import type {
   Account,
   AuthConfig,
+  Candle,
   Market,
   Order,
   PaperTickResponse,
   PortfolioState,
   Position,
   SystemState,
+  SyncResult,
   SystemStatus,
   TokenResponse,
   Trade,
@@ -106,4 +108,18 @@ export const api = {
     }),
 
   listMarkets: () => request<Market[]>("/api/v1/markets"),
+
+  // Loading price history is a prerequisite for every strategy decision:
+  // with fewer than ~35 bars a tick can only answer INSUFFICIENT_DATA.
+  // It had no UI at all, so the dashboard's one action was guaranteed to
+  // do nothing until the user found the right curl command in the docs.
+  syncCandles: (marketId: string, timeframe: string, hours: number) =>
+    request<SyncResult>(
+      `/api/v1/markets/${marketId}/sync?timeframe=${timeframe}&hours=${hours}`,
+      { method: "POST" }
+    ),
+  listCandles: (marketId: string, timeframe: string, limit = 1000) =>
+    request<Candle[]>(
+      `/api/v1/markets/${marketId}/candles?timeframe=${timeframe}&limit=${limit}`
+    ),
 };

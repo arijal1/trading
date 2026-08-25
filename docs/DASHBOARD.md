@@ -93,6 +93,42 @@ documented way to fetch data on mount), and silenced with a scoped
 `eslint-disable-next-line` plus a comment at each site — not disabled
 project-wide, and not worked around with a worse pattern.
 
+## Getting from an empty dashboard to a trade
+
+The dashboard used to load, show an account with no positions, and offer
+one button that could only answer `INSUFFICIENT_DATA` — because a fresh
+database has no candles and the strategy needs 35 bars before it will
+evaluate anything. The only way forward was a `curl` command from the
+docs. That is a dashboard with nothing you can do on it, which is how it
+was reported.
+
+The account page is now ordered as the two steps it actually is:
+
+**1. Price data** (`MarketDataPanel`) lists each market with how many bars
+are stored for the selected timeframe, says plainly whether that is
+enough (`400 bars — ready to trade` / `0 bars — needs 35 more`), and
+loads 400 hours of history with one button.
+
+**2. Run the strategy** (`PaperTickPanel`) runs one tick, or 25.
+
+The batch matters more than it looks. One tick is one decision and most
+decisions are `HOLD`, so clicking once and seeing `HOLD` reads as "nothing
+works". Twenty-five ticks produce a summary — `HOLD ×24, OPENED ×1` — which
+shows both that the thing works and that declining to trade is the normal
+case. The batch stops early on `INSUFFICIENT_DATA`, since repeating a tick
+cannot fix missing history.
+
+Three deliberate details:
+
+- **The timeframe is owned by the page, not by either panel.** Loading 1h
+  history and then ticking on 4h silently does nothing; two independent
+  dropdowns make that mismatch easy to create and hard to notice.
+- **`INSUFFICIENT_DATA` names its own fix** rather than only reporting the
+  state.
+- **The panel says the prices are synthetic.** They come from the mock
+  adapter, and a dashboard showing equity and drawdown against invented
+  candles should say so where the numbers are, not only in the docs.
+
 ## Authentication
 
 The dashboard has no session of its own. It asks the API what posture it
@@ -150,6 +186,10 @@ the client side.
   the default `AUTH_REQUIRED=false`, anyone who can reach the dashboard
   can read every account and trip the kill switch — fine for a LAN tool
   against a paper-trading backend, not fine past a trusted network.
+- **No chart.** Price history is shown as a bar count, not a candlestick
+  chart. The count is what decides whether the strategy will run at all,
+  which is the question the panel exists to answer; a chart is a
+  worthwhile addition, not a substitute.
 - **No `/signals`, `/decisions`, `/traders`, `/copy-trading` views.**
   Those API endpoints don't exist yet either (`docs/API_DESIGN.md`'s
   "Planned" table) — nothing to build a view against.

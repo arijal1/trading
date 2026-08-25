@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useEffect, useEffectEvent, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import MarketDataPanel from "@/components/MarketDataPanel";
 import OrdersTable from "@/components/OrdersTable";
 import PaperTickPanel from "@/components/PaperTickPanel";
 import PortfolioSummary from "@/components/PortfolioSummary";
@@ -23,6 +24,10 @@ export default function AccountPage({ params }: PageProps<"/accounts/[id]">) {
   const { id } = use(params);
   const [data, setData] = useState<AccountData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Held here rather than in either panel: loading 1h history and then
+  // ticking on 4h silently does nothing, and two independent dropdowns
+  // make that mismatch easy to create and hard to notice.
+  const [timeframe, setTimeframe] = useState("1h");
 
   async function load() {
     try {
@@ -83,12 +88,29 @@ export default function AccountPage({ params }: PageProps<"/accounts/[id]">) {
       </section>
 
       {data.account.mode === "paper" && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-500">
-            Run a paper-trading tick
-          </h2>
-          <PaperTickPanel accountId={id} onTick={load} />
-        </section>
+        <>
+          <section>
+            <h2 className="mb-3 text-sm font-semibold text-zinc-500">
+              1. Price data
+            </h2>
+            <MarketDataPanel
+              timeframe={timeframe}
+              onTimeframeChange={setTimeframe}
+            />
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-sm font-semibold text-zinc-500">
+              2. Run the strategy
+            </h2>
+            <PaperTickPanel
+              accountId={id}
+              onTick={load}
+              timeframe={timeframe}
+              onTimeframeChange={setTimeframe}
+            />
+          </section>
+        </>
       )}
 
       <section>

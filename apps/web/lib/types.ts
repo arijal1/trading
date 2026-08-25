@@ -133,3 +133,21 @@ export interface User {
   role: string;
   is_active: boolean;
 }
+
+export interface SyncResult {
+  requested_count: number;
+  already_stored_count: number;
+  fetched_count: number;
+  inserted_count: number;
+  gap_count: number;
+  adapter_called: boolean;
+}
+
+export interface Candle {
+  ts: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+}

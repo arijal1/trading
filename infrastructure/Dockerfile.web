@@ -28,6 +28,17 @@ ENV NODE_OPTIONS=$NODE_OPTIONS
 # runtime stage below copies it unconditionally, which failed the whole
 # build with "/app/public: not found". Creating it here makes the build
 # independent of whether the checkout happens to carry the directory.
+# Which commit this image was built from, shown in the dashboard footer.
+#
+# Without it there is no way to tell a stale container from a fresh one:
+# a rebuild that silently did not happen, a browser serving a cached
+# bundle, and a correctly-updated app all look identical. Deliberately
+# derived from the commit alone and not a timestamp — a timestamp would
+# change on every start and force a full rebuild even when nothing
+# changed.
+ARG BUILD_ID=unknown
+ENV NEXT_PUBLIC_BUILD_ID=$BUILD_ID
+
 RUN mkdir -p /app/public
 
 RUN npx next typegen && npm run build

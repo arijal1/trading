@@ -82,6 +82,9 @@ services:
         #   PUBLIC_HOST=192.168.1.50 docker compose ... up --build -d
         # Changing it requires a rebuild, not just a restart.
         NEXT_PUBLIC_API_BASE_URL: http://${PUBLIC_HOST:-localhost}:${API_PORT:-8000}
+        # Set by scripts/local.sh from the current commit, so the running
+        # dashboard can say which build it is.
+        BUILD_ID: ${BUILD_ID:-unknown}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"

@@ -207,9 +207,20 @@ cmd_start() {
   WEB="$(web_port)"; WEB="${WEB:-3000}"
   API="$(api_port)"; API="${API:-8000}"
 
+  # Derived from the commit, not the clock: a timestamp would differ on
+  # every start and force a full rebuild even when nothing changed. A
+  # dirty working tree is marked, so an edited-but-uncommitted checkout
+  # does not claim to be the commit it is based on.
+  if git -C "$REPO_ROOT" rev-parse --short HEAD >/dev/null 2>&1; then
+    BUILD_ID="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+    git -C "$REPO_ROOT" diff --quiet 2>/dev/null || BUILD_ID="${BUILD_ID}-dirty"
+    export BUILD_ID
+  fi
+
   hdr "Starting"
   inf "First run builds the images and takes about 5-10 minutes."
   inf "Later runs take a few seconds."
+  [ -n "${BUILD_ID:-}" ] && inf "building from commit ${BUILD_ID}"
   if ! dc up --build -d; then
     err "compose failed to start — see the output above"
     exit 1
@@ -279,7 +290,14 @@ cmd_start() {
   esac
 
   hdr "Ready"
-  printf '  Open:  %shttp://localhost:%s%s\n\n' "$B" "$WEB" "$N"
+  # Report the host the image was actually built for. Printing
+  # localhost unconditionally was wrong the moment PUBLIC_HOST was set
+  # to a LAN address, and sent people to a URL the build cannot serve.
+  PUB="$(sed -n 's/^PUBLIC_HOST=//p' infrastructure/.env 2>/dev/null | tail -1)"
+  PUB="${PUB:-localhost}"
+  printf '  Open:  %shttp://%s:%s%s\n' "$B" "$PUB" "$WEB" "$N"
+  [ -n "${BUILD_ID:-}" ] && printf '  The footer should read: build %s\n' "$BUILD_ID"
+  printf '\n'
   printf '  Stop it:      bash scripts/local.sh stop\n'
   printf '  See logs:     bash scripts/local.sh logs api\n'
   printf '  Start fresh:  bash scripts/local.sh reset\n\n'

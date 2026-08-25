@@ -51,9 +51,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </main>
         </AuthProvider>
         <footer className="border-t border-zinc-200 px-4 py-3 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-          Talks to the trading-api backend at{" "}
-          <code>NEXT_PUBLIC_API_BASE_URL</code>. See{" "}
-          <code>docs/DASHBOARD.md</code>.
+          <div>
+            API: <code>{process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"}</code>
+          </div>
+          {/* The build stamp answers "am I looking at the new version?",
+              which is otherwise unanswerable from the page: a rebuild that
+              silently did not happen and a cached bundle look exactly like
+              a correctly-updated app. */}
+          <div className="mt-1">
+            build <code>{process.env.NEXT_PUBLIC_BUILD_ID ?? "unknown"}</code>
+          </div>
         </footer>
       </body>
     </html>
